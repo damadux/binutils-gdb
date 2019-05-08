@@ -2317,7 +2317,7 @@ linux_vsyscall_range (struct gdbarch *gdbarch, struct mem_range *range)
 /* See gdbarch.sh 'infcall_mmap'.  */
 
 static CORE_ADDR
-linux_infcall_mmap (CORE_ADDR size, unsigned prot)
+linux_infcall_mmap (CORE_ADDR addr, CORE_ADDR size, unsigned prot)
 {
   struct objfile *objf;
   /* Do there still exist any Linux systems without "mmap64"?
@@ -2333,7 +2333,7 @@ linux_infcall_mmap (CORE_ADDR size, unsigned prot)
   struct value *arg[ARG_LAST];
 
   arg[ARG_ADDR] = value_from_pointer (builtin_type (gdbarch)->builtin_data_ptr,
-				      0);
+				      addr);
   /* Assuming sizeof (unsigned long) == sizeof (size_t).  */
   arg[ARG_LENGTH] = value_from_ulongest
 		    (builtin_type (gdbarch)->builtin_unsigned_long, size);

@@ -1582,8 +1582,8 @@ extern void set_gdbarch_vsyscall_range (struct gdbarch *gdbarch, gdbarch_vsyscal
    PROT has GDB_MMAP_PROT_* bitmask format.
    Throw an error if it is not possible.  Returned address is always valid. */
 
-typedef CORE_ADDR (gdbarch_infcall_mmap_ftype) (CORE_ADDR size, unsigned prot);
-extern CORE_ADDR gdbarch_infcall_mmap (struct gdbarch *gdbarch, CORE_ADDR size, unsigned prot);
+typedef CORE_ADDR (gdbarch_infcall_mmap_ftype) (CORE_ADDR addr, CORE_ADDR size, unsigned prot);
+extern CORE_ADDR gdbarch_infcall_mmap (struct gdbarch *gdbarch, CORE_ADDR addr, CORE_ADDR size, unsigned prot);
 extern void set_gdbarch_infcall_mmap (struct gdbarch *gdbarch, gdbarch_infcall_mmap_ftype *infcall_mmap);
 
 /* Deallocate SIZE bytes of memory at ADDR in inferior from gdbarch_infcall_mmap.
