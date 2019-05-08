@@ -889,7 +889,7 @@ default_skip_permanent_breakpoint (struct regcache *regcache)
 }
 
 CORE_ADDR
-default_infcall_mmap (CORE_ADDR size, unsigned prot)
+default_infcall_mmap (CORE_ADDR addr, CORE_ADDR size, unsigned prot)
 {
   error (_("This target does not support inferior memory allocation by mmap."));
 }
