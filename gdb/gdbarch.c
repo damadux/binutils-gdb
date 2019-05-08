@@ -5010,13 +5010,13 @@ set_gdbarch_vsyscall_range (struct gdbarch *gdbarch,
 }
 
 CORE_ADDR
-gdbarch_infcall_mmap (struct gdbarch *gdbarch, CORE_ADDR size, unsigned prot)
+gdbarch_infcall_mmap (struct gdbarch *gdbarch, CORE_ADDR addr, CORE_ADDR size, unsigned prot)
 {
   gdb_assert (gdbarch != NULL);
   gdb_assert (gdbarch->infcall_mmap != NULL);
   if (gdbarch_debug >= 2)
     fprintf_unfiltered (gdb_stdlog, "gdbarch_infcall_mmap called\n");
-  return gdbarch->infcall_mmap (size, prot);
+  return gdbarch->infcall_mmap (addr, size, prot);
 }
 
 void

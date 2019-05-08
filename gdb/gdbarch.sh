@@ -1175,7 +1175,7 @@ m;int;vsyscall_range;struct mem_range *range;range;;default_vsyscall_range;;0
 # Allocate SIZE bytes of PROT protected page aligned memory in inferior.
 # PROT has GDB_MMAP_PROT_* bitmask format.
 # Throw an error if it is not possible.  Returned address is always valid.
-f;CORE_ADDR;infcall_mmap;CORE_ADDR size, unsigned prot;size, prot;;default_infcall_mmap;;0
+f;CORE_ADDR;infcall_mmap;CORE_ADDR addr, CORE_ADDR size, unsigned prot;addr, size, prot;;default_infcall_mmap;;0
 
 # Deallocate SIZE bytes of memory at ADDR in inferior from gdbarch_infcall_mmap.
 # Print a warning if it is not possible.
