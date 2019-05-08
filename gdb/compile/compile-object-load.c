@@ -129,7 +129,7 @@ setup_sections (bfd *abfd, asection *sect, void *data_voidp)
 
       if (data->last_size != 0)
 	{
-	  addr = gdbarch_infcall_mmap (target_gdbarch (), data->last_size,
+	  addr = gdbarch_infcall_mmap (target_gdbarch (), 0, data->last_size,
 				       data->last_prot);
 	  data->munmap_list->add (addr, data->last_size);
 	  if (compile_debug)
@@ -753,7 +753,7 @@ compile_object_load (const compile_file_names &file_names,
   else
     {
       /* Use read-only non-executable memory protection.  */
-      regs_addr = gdbarch_infcall_mmap (target_gdbarch (),
+      regs_addr = gdbarch_infcall_mmap (target_gdbarch (), 0,
 					TYPE_LENGTH (regs_type),
 					GDB_MMAP_PROT_READ);
       gdb_assert (regs_addr != 0);
@@ -774,7 +774,7 @@ compile_object_load (const compile_file_names &file_names,
       if (out_value_type == NULL)
 	return NULL;
       check_typedef (out_value_type);
-      out_value_addr = gdbarch_infcall_mmap (target_gdbarch (),
+      out_value_addr = gdbarch_infcall_mmap (target_gdbarch (), 0,
 					     TYPE_LENGTH (out_value_type),
 					     (GDB_MMAP_PROT_READ
 					      | GDB_MMAP_PROT_WRITE));
