@@ -752,10 +752,11 @@ compile_object_load (const compile_file_names &file_names,
     regs_addr = 0;
   else
     {
-      /* Use read-only non-executable memory protection.  */
+      /* Use read-write non-executable memory protection.
+         We may need to update the registers when calling _gdb_expr_. */
       regs_addr = gdbarch_infcall_mmap (target_gdbarch (), 0,
 					TYPE_LENGTH (regs_type),
-					GDB_MMAP_PROT_READ);
+					GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE);
       gdb_assert (regs_addr != 0);
       setup_sections_data.munmap_list->add (regs_addr, TYPE_LENGTH (regs_type));
       if (compile_debug)
