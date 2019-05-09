@@ -633,6 +633,11 @@ struct breakpoint_ops
   void (*after_condition_true) (struct bpstats *bs);
 };
 
+/* Create SALs from location, storing the result in linespec_result.  */
+void create_sals_from_location_default (const struct event_location *,
+                                        struct linespec_result *,
+                                        enum bptype);
+
 /* Helper for breakpoint_ops->print_recreate implementations.  Prints
    the "thread" or "task" condition of B, and then a newline.
 

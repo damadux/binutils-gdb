@@ -100,11 +100,6 @@ static void map_breakpoint_numbers (const char *,
 
 static void breakpoint_re_set_default (struct breakpoint *);
 
-static void
-  create_sals_from_location_default (const struct event_location *location,
-				     struct linespec_result *canonical,
-				     enum bptype type_wanted);
-
 static void create_breakpoints_sal_default (struct gdbarch *,
 					    struct linespec_result *,
 					    gdb::unique_xmalloc_ptr<char>,
@@ -13706,7 +13701,7 @@ breakpoint_re_set_default (struct breakpoint *b)
 /* Default method for creating SALs from an address string.  It basically
    calls parse_breakpoint_sals.  Return 1 for success, zero for failure.  */
 
-static void
+void
 create_sals_from_location_default (const struct event_location *location,
 				   struct linespec_result *canonical,
 				   enum bptype type_wanted)
