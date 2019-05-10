@@ -207,4 +207,12 @@ private:
   std::string m_object_file;
 };
 
+/* Process the compilation request.  On success it returns the object
+   and source file names.  On an error condition, error () is
+   called.  */
+compile_file_names compile_to_object(struct command_line *cmd,
+                                     const char *cmd_string,
+                                     enum compile_i_scope_types scope,
+                                     CORE_ADDR addr);
+
 #endif /* COMPILE_COMPILE_INTERNAL_H */
