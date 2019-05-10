@@ -207,4 +207,15 @@ private:
   std::string m_object_file;
 };
 
+/* Process the compilation request.  On success it returns the object
+   and source file names.  On an error condition, error () is
+   called.
+   if addr is set to 0, the program is compiled in the scope of the
+   current frame. Otherwise it uses the frame containing the
+   instruction at address addr.  */
+compile_file_names compile_to_object(struct command_line *cmd,
+                                     const char *cmd_string,
+                                     enum compile_i_scope_types scope,
+                                     CORE_ADDR addr);
+
 #endif /* COMPILE_COMPILE_INTERNAL_H */

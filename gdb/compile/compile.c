@@ -667,13 +667,12 @@ print_callback (void *ignore, const char *message)
   fputs_filtered (message, gdb_stderr);
 }
 
-/* Process the compilation request.  On success it returns the object
-   and source file names.  On an error condition, error () is
-   called.  */
 
-static compile_file_names
+/* See compile-internal.h.  */
+
+compile_file_names
 compile_to_object (struct command_line *cmd, const char *cmd_string,
-		   enum compile_i_scope_types scope)
+		   enum compile_i_scope_types scope, CORE_ADDR address)
 {
   const struct block *expr_block;
   CORE_ADDR trash_pc, expr_pc;
@@ -687,8 +686,17 @@ compile_to_object (struct command_line *cmd, const char *cmd_string,
     error (_("The program must be running for the compile command to "\
 	     "work."));
 
-  expr_block = get_expr_block_and_pc (&trash_pc);
-  expr_pc = get_frame_address_in_block (get_selected_frame (NULL));
+  if(address == 0)
+    {
+      /* Use current address.  */
+      expr_block = get_expr_block_and_pc (&trash_pc);
+      expr_pc = get_frame_address_in_block (get_selected_frame (NULL));
+    }
+  else
+    {
+      expr_block =  block_for_pc(address);
+      expr_pc = address;
+    }
 
   /* Set up instance and context for the compiler.  */
   if (current_language->la_get_compile_instance == NULL)
@@ -824,7 +832,7 @@ eval_compile_command (struct command_line *cmd, const char *cmd_string,
 {
   struct compile_module *compile_module;
 
-  compile_file_names fnames = compile_to_object (cmd, cmd_string, scope);
+  compile_file_names fnames = compile_to_object (cmd, cmd_string, scope, 0);
 
   gdb::unlinker object_remover (fnames.object_file ());
   gdb::unlinker source_remover (fnames.source_file ());
