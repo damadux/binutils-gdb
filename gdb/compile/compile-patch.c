@@ -111,7 +111,7 @@ int fill_trampoline(unsigned char *trampoline_instr, CORE_ADDR called,
 }
 
 CORE_ADDR
-find_return_address(CORE_ADDR *insn_addr, struct gdbarch *gdbarch)
+find_return_address(struct gdbarch *gdbarch, CORE_ADDR *insn_addr, bool verbose)
 {
   /* For now we only find the next 5 byte instruction in the code.
      In the future, we can implement better techniques to replace
@@ -134,7 +134,7 @@ find_return_address(CORE_ADDR *insn_addr, struct gdbarch *gdbarch)
     }
     struct symtab_and_line sal = find_pc_sect_line(
         corrected_address, find_pc_section(corrected_address), 0);
-    if (!yquery(_("Instruction at address 0x%lx is not 5 bytes long, "
+    if (verbose && !yquery(_("Instruction at address 0x%lx is not 5 bytes long, "
                   "place code at address 0x%lx (file %s line %d) ? \n"),
                 *insn_addr, corrected_address,
                 symtab_to_filename_for_display(sal.symtab), sal.line))
@@ -238,6 +238,18 @@ void patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
   target_write_memory(addr, jump_insn, 5);
 }
 
+/* Convert a string to an instruction address. */
+static CORE_ADDR
+location_to_pc(const char *location)
+{
+  event_location_up event_location = string_to_event_location(&location, current_language);
+  struct linespec_result canonical;
+  create_sals_from_location_default(event_location.get(), &canonical,
+                                    bp_breakpoint);
+  CORE_ADDR addr = canonical.lsals[0].sals[0].pc;
+  return addr;
+}
+
 static void
 patch_code(const char *location, const char *code)
 {
@@ -245,15 +257,11 @@ patch_code(const char *location, const char *code)
   struct gdbarch *gdbarch = target_gdbarch();
 
   /* Convert location to an instruction address.  */
-  event_location_up event_location = string_to_event_location(&location, current_language);
-  struct linespec_result canonical;
-  create_sals_from_location_default(event_location.get(), &canonical,
-                                    bp_breakpoint);
-  CORE_ADDR addr = canonical.lsals[0].sals[0].pc;
+  CORE_ADDR addr = location_to_pc(location);
 
   /* Compile code.  */
   enum compile_i_scope_types scope = COMPILE_I_SIMPLE_SCOPE;
-  compile_file_names fnames = compile_to_object(NULL, code, scope);
+  compile_file_names fnames = compile_to_object(NULL, code, scope, addr);
   gdb::unlinker object_remover(fnames.object_file());
   gdb::unlinker source_remover(fnames.source_file());
 
@@ -261,7 +269,7 @@ patch_code(const char *location, const char *code)
   struct compile_module *compile_module = compile_object_load(fnames, scope, NULL);
 
   /* Build a trampoline which calls the compiled code.  */
-  CORE_ADDR return_address = find_return_address(&addr, gdbarch);
+  CORE_ADDR return_address = find_return_address(gdbarch, &addr, true);
   CORE_ADDR trampoline_address = build_compile_trampoline(
       compile_module, addr, return_address, gdbarch);
 
@@ -283,7 +291,8 @@ patch_code(const char *location, const char *code)
    containing calls to the GCC compiler.  The language expected in this
    command is the language currently set in GDB.  */
 
-void compile_patch_code_command(const char *arg, int from_tty)
+void 
+compile_patch_code_command(const char *arg, int from_tty)
 {
   char *dup = strdup(arg);
   const char *location = strtok(dup, " ");
@@ -298,7 +307,8 @@ void compile_patch_code_command(const char *arg, int from_tty)
    a source file.  The language expected in this command
    is the language currently set in GDB. */
 
-void compile_patch_file_command(const char *arg, int from_tty)
+void 
+compile_patch_file_command(const char *arg, int from_tty)
 {
   char *dup = strdup(arg);
   const char *location = strtok(dup, " ");
@@ -311,7 +321,30 @@ void compile_patch_file_command(const char *arg, int from_tty)
 
 /* The patch command without a suffix is interpreted as patch code. */
 
-void compile_patch_command(const char *arg, int from_tty)
+void 
+compile_patch_command(const char *arg, int from_tty)
 {
   compile_patch_code_command(arg, from_tty);
+}
+
+/* Returns where the next possible patchable instruction is.  */
+
+void 
+compile_patch_where_command(const char *arg, int from_tty)
+{
+  struct gdbarch *gdbarch = target_gdbarch();
+
+  CORE_ADDR addr = location_to_pc(arg);
+  CORE_ADDR new_address = addr;
+  find_return_address(gdbarch, &new_address, false);
+
+  struct symtab_and_line sal = find_pc_sect_line(new_address,find_pc_section(new_address),0);
+
+  if(new_address == addr){
+    fprintf_filtered(gdb_stdlog,"Insertion possible at address 0x%lx on line %d\n", new_address,sal.line);
+  }
+  else {
+    fprintf_filtered(gdb_stdlog,"Insertion not possible at address 0x%lx\n",addr);
+    fprintf_filtered(gdb_stdlog,"Next possible address 0x%lx on line %d\n", new_address,sal.line);
+  }
 }

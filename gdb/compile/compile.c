@@ -986,7 +986,7 @@ Command to compile source code and patch it into the inferior."),
 	   _("\
 Compile, and patch code at location.\n\
 \n\
-Usage: compile code [LOCATION] [CODE]\n\
+Usage: patch code [LOCATION] [CODE]\n\
 \n\
 The source code may be specified as a simple one line expression, e.g.:\n\
 \n\
@@ -1002,6 +1002,15 @@ Compile and patch in a file containing source code.\n\
 Usage: compile patch file [LOCATION] [FILENAME]"),
 	       &compile_patch_command_list);
   set_cmd_completer (c, filename_completer);
+
+  add_cmd ("where", class_obscure, compile_patch_where_command,
+	   _("\
+Indicates where the next possible insertion is.\n\
+\n\
+Usage: patch where [LOCATION] \n\
+\n\
+Typically, this will point to the next 5 byte instruction."),
+	   &compile_patch_command_list);
 
   add_setshow_boolean_cmd ("compile", class_maintenance, &compile_debug, _("\
 Set compile command debugging."), _("\

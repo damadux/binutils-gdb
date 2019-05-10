@@ -20,4 +20,8 @@ extern void compile_patch_file_command(const char *arg, int from_tty);
 
 extern void compile_patch_command(const char *arg, int from_tty);
 
+/* Returns where the next possible patchable instruction is.  */
+
+extern void compile_patch_where_command(const char *arg, int from_tty);
+
 #endif /* COMPILE_PATCH_H */
