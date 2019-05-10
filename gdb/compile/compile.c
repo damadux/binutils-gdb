@@ -42,7 +42,7 @@
 #include "common/gdb_optional.h"
 #include "common/gdb_unlinker.h"
 #include "common/pathstuff.h"
-
+#include "compile-patch.h"
 
 
 /* Initial filename for temporary files.  */
@@ -52,6 +52,11 @@
 /* Hold "compile" commands.  */
 
 static struct cmd_list_element *compile_command_list;
+
+/* Hold "patch" commands.  */
+
+static struct cmd_list_element *compile_patch_command_list;
+
 
 /* Debug flag for "compile" commands.  */
 
@@ -621,7 +626,7 @@ print_callback (void *ignore, const char *message)
    and source file names.  On an error condition, error () is
    called.  */
 
-static compile_file_names
+compile_file_names
 compile_to_object (struct command_line *cmd, const char *cmd_string,
 		   enum compile_i_scope_types scope)
 {
@@ -964,6 +969,32 @@ indicate the end of the expression.\n\
 EXPR may be preceded with /FMT, where FMT is a format letter\n\
 but no count or size letter (see \"x\" command)."),
 	   &compile_command_list);
+
+  compile_cmd_element = add_prefix_cmd ("patch", class_obscure,
+					compile_patch_command, _("\
+Command to compile source code and patch it into the inferior."),
+		  &compile_patch_command_list, "patch ", 1, &cmdlist);
+
+  add_cmd ("code", class_obscure, compile_patch_code_command,
+	   _("\
+Compile, and patch code at location.\n\
+\n\
+Usage: compile code [LOCATION] [CODE]\n\
+\n\
+The source code may be specified as a simple one line expression, e.g.:\n\
+\n\
+    patch code main:2 printf(\"Hello world\\n\");\n\
+\n\
+It will be executed each time the instruction at location is hit."),
+	   &compile_patch_command_list);
+
+  c = add_cmd ("file", class_obscure, compile_patch_file_command,
+	       _("\
+Compile and patch in a file containing source code.\n\
+\n\
+Usage: compile patch file [LOCATION] [FILENAME]"),
+	       &compile_patch_command_list);
+  set_cmd_completer (c, filename_completer);
 
   add_setshow_boolean_cmd ("compile", class_maintenance, &compile_debug, _("\
 Set compile command debugging."), _("\
