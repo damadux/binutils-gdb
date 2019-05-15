@@ -43,7 +43,8 @@
 #include "common/gdb_unlinker.h"
 #include "common/pathstuff.h"
 #include "compile-patch.h"
-
+#include "observable.h"
+
 
 /* Initial filename for temporary files.  */
 
@@ -924,6 +925,8 @@ _initialize_compile (void)
 {
   struct cmd_list_element *c = NULL;
 
+  gdb::observers::inferior_exit.attach(reset_patch_list);
+
   compile_cmd_element = add_prefix_cmd ("compile", class_obscure,
 					compile_command, _("\
 Command to compile source code and inject it into the inferior."),
@@ -1004,6 +1007,23 @@ Usage: compile patch file [LOCATION] [FILENAME]"),
   set_cmd_completer (c, filename_completer);
 
   add_cmd ("where", class_obscure, compile_patch_where_command,
+	   _("\
+Indicates where the next possible insertion is.\n\
+\n\
+Usage: patch where [LOCATION] \n\
+\n\
+Typically, this will point to the next 5 byte instruction."),
+	   &compile_patch_command_list);
+  add_cmd ("list", class_obscure, compile_patch_list_command,
+	   _("\
+Indicates where the next possible insertion is.\n\
+\n\
+Usage: patch where [LOCATION] \n\
+\n\
+Typically, this will point to the next 5 byte instruction."),
+	   &compile_patch_command_list);
+    
+  add_cmd ("delete", class_obscure, compile_patch_delete_command,
 	   _("\
 Indicates where the next possible insertion is.\n\
 \n\

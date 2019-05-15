@@ -29,6 +29,9 @@
 #include "compile-internal.h"
 #include "compile.h"
 #include "compile-object-load.h"
+#include "patch.h"
+
+PatchVector all_patches;
 
 /* Fills the trampoline but does not relocate the replaced instruction */
 int fill_trampoline(unsigned char *trampoline_instr, CORE_ADDR called,
@@ -60,7 +63,7 @@ int fill_trampoline(unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x51; /* push %r9 */
   trampoline_instr[i++] = 0x41;
-  trampoline_instr[i++] = 0x50;              /* push %r8 */
+  trampoline_instr[i++] = 0x50; /* push %r8 */
   trampoline_instr[i++] = 0x9c; /* pushfq */ // may cause bug when stepped over
 
   /* provide gdb_expr () arguments */
@@ -125,9 +128,22 @@ find_return_address(struct gdbarch *gdbarch, CORE_ADDR *insn_addr, bool verbose)
       gdb_print_insn(gdbarch, corrected_address, &buf, NULL);
       if (strstr(buf.c_str(), "ret") != NULL)
       {
-        error("May not have a fast tracepoint at %s or before the end "
-              "of the function.\n",
-              paddress(gdbarch, *insn_addr));
+        if (verbose)
+        {
+          error("May not have a fast tracepoint at %s or before the end "
+                "of the function.\n",
+                paddress(gdbarch, *insn_addr));
+        }
+        else
+        {
+          /* we don't stop the program execution */
+          fprintf_filtered(gdb_stdlog,"May not have a fast tracepoint at %s or before the end "
+                "of the function.\n",
+                paddress(gdbarch, *insn_addr));
+          *insn_addr = (CORE_ADDR) 0;
+          return (CORE_ADDR) 0;
+        }
+        
       }
       buf.clear();
       corrected_address += gdb_insn_length(gdbarch, corrected_address);
@@ -147,13 +163,24 @@ find_return_address(struct gdbarch *gdbarch, CORE_ADDR *insn_addr, bool verbose)
   CORE_ADDR return_address = *insn_addr + gdb_insn_length(gdbarch, *insn_addr);
   return return_address;
 }
-
+/* Allocate some space for a trampoline.
+   mmap is done one page at a time, a larger trampoline cannot be allocated.  */
 CORE_ADDR allocate_trampoline(struct gdbarch *gdbarch, int size)
 {
+  const int page_size = 0x1000;
   static CORE_ADDR trampoline_mmap_address = 0x100000;
   static CORE_ADDR trampoline_address = 0;
   const unsigned prot = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
-  const int page_size = 0x1000;
+
+  /* On inferior exit, reset the static variables. */
+  if(size<0)
+  {
+    trampoline_address = 0;
+    trampoline_mmap_address = 0x100000;
+    return 0;
+  }
+
+  gdb_assert(size<=page_size);
   if(trampoline_address == 0 || trampoline_address + size > trampoline_mmap_address)
   {
     /* Allocate a new chunk of memory of one page*/
@@ -168,9 +195,10 @@ CORE_ADDR allocate_trampoline(struct gdbarch *gdbarch, int size)
 }
 
 CORE_ADDR
-build_compile_trampoline(struct compile_module *module, CORE_ADDR insn_addr,
-                         CORE_ADDR return_address, struct gdbarch *gdbarch)
+build_compile_trampoline(struct gdbarch *gdbarch, struct compile_module *module,
+                        Patch *patch, CORE_ADDR return_address)
 {
+  CORE_ADDR insn_addr = patch->address;
   struct symbol *func_sym = module->func_sym;
   CORE_ADDR func_addr = BLOCK_ENTRY_PC(SYMBOL_BLOCK_VALUE(func_sym));
 
@@ -180,18 +208,30 @@ build_compile_trampoline(struct compile_module *module, CORE_ADDR insn_addr,
   unsigned char trampoline_instr[0x80];
   int trampoline_size = fill_trampoline(trampoline_instr, func_addr, regs_addr);
 
-  /* Allocate memory for the trampoline in the inferior*/
+  /* Allocate memory for the trampoline in the inferior.  */
   CORE_ADDR trampoline = allocate_trampoline(gdbarch, sizeof(trampoline_instr));
 
-  /* Copy content of trampoline_instr to inferior memory */
+  /* Copy content of trampoline_instr to inferior memory.  */
   target_write_memory(trampoline, trampoline_instr, trampoline_size);
 
-  /* relocate replaced instruction */
-  CORE_ADDR trampoline_end = trampoline + trampoline_size;
+  /* Relocate replaced instruction */
+  CORE_ADDR relocation_address = trampoline + trampoline_size;
+  CORE_ADDR trampoline_end = relocation_address;
   gdbarch_relocate_instruction(gdbarch, &trampoline_end, insn_addr);
-  trampoline_size += gdb_insn_length(gdbarch, insn_addr);
 
-  /* jump back to normal return address */
+  /* Leave enough room for any instruction should another one be relocated here */
+  trampoline_size += 15;
+  /* Fill the void with nops */
+  if (gdb_insn_length(gdbarch, insn_addr) > 5)
+  {
+    const unsigned char NOP_buffer[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+    target_write_memory(relocation_address + gdb_insn_length(gdbarch, insn_addr), NOP_buffer,
+                        15 - gdb_insn_length(gdbarch, insn_addr));
+  }
+
+  patch->relocated_insn_address = relocation_address;
+  
+  /* Jump back to return address.  */
   int64_t long_jump_offset = return_address - (trampoline_end + 5);
   if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
   {
@@ -226,8 +266,8 @@ void patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
   unsigned char jump_insn[] = {0xe9, 0, 0, 0, 0};
   memcpy(jump_insn + 1, &jump_offset, 4);
 
-  /* add nops to clarify the code if the instruction was too long. These should
-   * never be hit.  */
+  /* Add nops to clarify the code if the instruction was too long. These should
+     never be hit.  */
   if (gdb_insn_length(gdbarch, addr) > 5)
   {
     const unsigned char NOP_buffer[] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
@@ -238,7 +278,7 @@ void patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
   target_write_memory(addr, jump_insn, 5);
 }
 
-/* Convert a string to an instruction address. */
+/* Convert a string describing a location to an instruction address. */
 static CORE_ADDR
 location_to_pc(const char *location)
 {
@@ -250,6 +290,7 @@ location_to_pc(const char *location)
   return addr;
 }
 
+/* The central function for the patch command. */
 static void
 patch_code(const char *location, const char *code)
 {
@@ -270,16 +311,21 @@ patch_code(const char *location, const char *code)
 
   /* Build a trampoline which calls the compiled code.  */
   CORE_ADDR return_address = find_return_address(gdbarch, &addr, true);
-  CORE_ADDR trampoline_address = build_compile_trampoline(
-      compile_module, addr, return_address, gdbarch);
+
+  Patch *patch = new Patch(compile_module->munmap_list_head, addr);
+
+  CORE_ADDR trampoline_address = build_compile_trampoline(gdbarch,
+      compile_module, patch, return_address);
+
+  patch->trampoline_address = trampoline_address;
 
   /* Patch in the code the jump to the trampoline.  */
   patch_jump(addr, trampoline_address, gdbarch);
 
+  all_patches.add(patch);
   /* Free unused memory */
   /* Some memory is left allocated in the inferior because
-     we still need to access it to execute the compiled code.
-     It will only be freed as program exits.  */
+     we still need to access it to execute the compiled code.  */
   unlink(compile_module->source_file);
   xfree(compile_module->source_file);
   unlink(objfile_name(compile_module->objfile));
@@ -290,7 +336,6 @@ patch_code(const char *location, const char *code)
    "patch code" command is used to patch in the code an expression
    containing calls to the GCC compiler.  The language expected in this
    command is the language currently set in GDB.  */
-
 void 
 compile_patch_code_command(const char *arg, int from_tty)
 {
@@ -306,7 +351,6 @@ compile_patch_code_command(const char *arg, int from_tty)
    containing calls to the GCC compiler. It takes as argument
    a source file.  The language expected in this command
    is the language currently set in GDB. */
-
 void 
 compile_patch_file_command(const char *arg, int from_tty)
 {
@@ -320,15 +364,15 @@ compile_patch_file_command(const char *arg, int from_tty)
 }
 
 /* The patch command without a suffix is interpreted as patch code. */
-
 void 
 compile_patch_command(const char *arg, int from_tty)
 {
   compile_patch_code_command(arg, from_tty);
 }
 
-/* Returns where the next possible patchable instruction is.  */
-
+/* Handle the input from the 'patch where' command.  The
+   "patch where" command is used to print the address of the next
+   possible insertion from the address given as argument.  */
 void 
 compile_patch_where_command(const char *arg, int from_tty)
 {
@@ -337,7 +381,9 @@ compile_patch_where_command(const char *arg, int from_tty)
   CORE_ADDR addr = location_to_pc(arg);
   CORE_ADDR new_address = addr;
   find_return_address(gdbarch, &new_address, false);
-
+  if (new_address == 0){
+    return;
+  }
   struct symtab_and_line sal = find_pc_sect_line(new_address,find_pc_section(new_address),0);
 
   if(new_address == addr){
@@ -348,3 +394,75 @@ compile_patch_where_command(const char *arg, int from_tty)
     fprintf_filtered(gdb_stdlog,"Next possible address 0x%lx on line %d\n", new_address,sal.line);
   }
 }
+
+/* Handle the input from the 'patch list' command.  The
+   "patch list" command is used to display all active patches in 
+   the inferior.  */
+void compile_patch_list_command(const char *arg, int from_tty)
+{
+  auto it = all_patches.patches.begin();
+  int i = 0;
+  for(;it != all_patches.patches.end();it++)
+  {
+    if(all_patches.active[i]){
+      fprintf_filtered(gdb_stdlog, "%i  address: 0x%lx\n", i, (*it)->address);
+    }
+    i++;
+  }
+}
+
+/* Handle the input from the 'patch delete' command.  The
+   "patch delete" command is used to remove a patch from the inferior.
+   It expects an index as argument.  */
+void compile_patch_delete_command(const char *arg, int from_tty)
+{
+  struct gdbarch *gdbarch = target_gdbarch();
+  
+  if (arg == "")
+  {
+    fprintf_filtered(gdb_stdlog, "patch delete needs a patch index. \n");
+    return;
+  }
+  int index = atoi(arg);
+  Patch *patch = all_patches.patches[index];
+  std::vector<Patch *> *patches_at_address = all_patches.find_address(patch->address);
+  
+  CORE_ADDR to_change = patch->address;
+  
+  auto it = patches_at_address->begin();
+  for(;*it!=patch;it++);
+  it++;
+  if(it!=patches_at_address->end())
+  {
+    to_change = (*it)->relocated_insn_address;
+  }
+
+  gdbarch_relocate_instruction(gdbarch, &to_change, patch->relocated_insn_address);
+  
+  all_patches.remove(index);
+  delete patches_at_address;
+  delete patch;
+
+}
+
+/* Called on inferior exit. We reset everything */
+void
+reset_patch_list (struct inferior *inferior)
+{
+  /* Reset the mmap values for trampolines */
+  allocate_trampoline(NULL, -1);
+
+  /* Delete all live patches object */
+  auto it = all_patches.patches.begin();
+  int i = 0;
+  for(;it != all_patches.patches.end();it++)
+  {
+    if(all_patches.active[i]){
+      delete *it;
+    }
+    i++;
+  }
+  /* Reset the list of patches */
+  all_patches = PatchVector();
+}
+
