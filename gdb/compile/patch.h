@@ -1,14 +1,12 @@
 #include "defs.h"
 #include "compile-object-load.h"
-#include <unordered_map>
 
+/* A Patch represents an addition to the original binary. */
 class Patch
 {
 private:
     struct munmap_list *munmap_list_head;
-    /* x86_64 maximum instruction size is 15 */
-    gdb_byte original_instruction[15];
-    
+
 public:
     CORE_ADDR trampoline_address;
     CORE_ADDR address;
@@ -27,6 +25,7 @@ public:
     }
 };
 
+/* A set of patches that can be searched by index or address.  */
 class PatchVector
 {
 public:

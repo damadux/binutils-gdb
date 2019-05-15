@@ -418,13 +418,13 @@ void compile_patch_delete_command(const char *arg, int from_tty)
 {
   struct gdbarch *gdbarch = target_gdbarch();
   
-  if (arg == "")
+  if (arg == NULL)
   {
     fprintf_filtered(gdb_stdlog, "patch delete needs a patch index. \n");
     return;
   }
   int index = atoi(arg);
-  Patch *patch = all_patches.patches[index];
+  Patch *patch = all_patches.find_index(index);
   std::vector<Patch *> *patches_at_address = all_patches.find_address(patch->address);
   
   CORE_ADDR to_change = patch->address;
