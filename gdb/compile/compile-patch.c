@@ -458,6 +458,72 @@ compile_patch_where_command (const char *arg, int from_tty)
     }
 }
 
+/* Handle the input from the 'patch list' command.  The
+   "patch list" command is used to display all active patches in 
+   the inferior.  */
+void
+compile_patch_list_command (const char *arg, int from_tty)
+{
+  auto it = all_patches.patches.begin ();
+  int i = 0;
+  for (; it != all_patches.patches.end (); it++)
+    {
+      if (all_patches.active[i])
+        {
+          fprintf_filtered (gdb_stdlog, "%i  address: 0x%lx\n", i,
+                            (*it)->address);
+        }
+      i++;
+    }
+}
+
+/* Handle the input from the 'patch delete' command.  The
+   "patch delete" command is used to remove a patch from the inferior.
+   It expects an index as argument.  */
+void
+compile_patch_delete_command (const char *arg, int from_tty)
+{
+  struct gdbarch *gdbarch = target_gdbarch ();
+
+  if (arg == NULL)
+    {
+      fprintf_filtered (gdb_stdlog,
+                        "patch delete needs a patch index. \n");
+      return;
+    }
+  int index = atoi (arg);
+  Patch *patch = all_patches.find_index (index);
+  if (patch == NULL)
+    {
+      fprintf_filtered (gdb_stdlog,
+                        "No patch has been found for index %d\n", index);
+      return;
+    }
+  std::vector<Patch *> *patches_at_address
+      = all_patches.find_address (patch->address);
+
+  CORE_ADDR to_change = patch->address;
+
+  auto it = patches_at_address->begin ();
+  for (; *it != patch; it++)
+    {
+      printf ("address 0x%lx \n", (*it)->address);
+    };
+  it++;
+  if (it != patches_at_address->end ())
+    {
+      printf ("address after 0x%lx \n", (*it)->address);
+      to_change = (*it)->relocated_insn_address;
+    }
+
+  gdbarch_relocate_instruction (gdbarch, &to_change,
+                                patch->relocated_insn_address);
+
+  all_patches.remove (index);
+  delete patches_at_address;
+  delete patch;
+}
+
 /* Called on inferior exit. We reset everything */
 void
 reset_patch_data (struct inferior *inferior)
