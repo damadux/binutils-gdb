@@ -210,6 +210,7 @@ private:
 /* for use in compile-patch.  */
 compile_file_names compile_to_object(struct command_line *cmd,
                                      const char *cmd_string,
-                                     enum compile_i_scope_types scope);
+                                     enum compile_i_scope_types scope,
+                                     CORE_ADDR addr);
 
 #endif /* COMPILE_COMPILE_INTERNAL_H */
