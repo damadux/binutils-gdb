@@ -926,7 +926,7 @@ _initialize_compile (void)
 {
   struct cmd_list_element *c = NULL;
 
-  gdb::observers::inferior_exit.attach(reset_patches);
+  gdb::observers::inferior_exit.attach(reset_patch_data);
 
   compile_cmd_element = add_prefix_cmd ("compile", class_obscure,
 					compile_command, _("\
