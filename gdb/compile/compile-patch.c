@@ -128,22 +128,12 @@ find_return_address(struct gdbarch *gdbarch, CORE_ADDR *insn_addr, bool verbose)
       gdb_print_insn(gdbarch, corrected_address, &buf, NULL);
       if (strstr(buf.c_str(), "ret") != NULL)
       {
-        if (verbose)
-        {
-          error("May not have a fast tracepoint at %s or before the end "
-                "of the function.\n",
-                paddress(gdbarch, *insn_addr));
-        }
-        else
-        {
-          /* we don't stop the program execution */
-          fprintf_filtered(gdb_stdlog,"May not have a fast tracepoint at %s or before the end "
-                "of the function.\n",
-                paddress(gdbarch, *insn_addr));
-          *insn_addr = (CORE_ADDR) 0;
-          return (CORE_ADDR) 0;
-        }
-        
+        /* we don't stop the program execution in order to free the allocated memory */
+        fprintf_filtered(gdb_stderr,"May not have a fast tracepoint at %s or before the end "
+              "of the function.\n",
+              paddress(gdbarch, *insn_addr));
+        *insn_addr = (CORE_ADDR) 0;
+        return (CORE_ADDR) 0;
       }
       buf.clear();
       corrected_address += gdb_insn_length(gdbarch, corrected_address);
@@ -155,8 +145,10 @@ find_return_address(struct gdbarch *gdbarch, CORE_ADDR *insn_addr, bool verbose)
                 *insn_addr, corrected_address,
                 symtab_to_filename_for_display(sal.symtab), sal.line))
     {
-      error(_("May not have a fast tracepoint at %s"),
+      fprintf_filtered(gdb_stderr,"May not have a fast tracepoint at %s",
             paddress(gdbarch, *insn_addr));
+        *insn_addr = (CORE_ADDR) 0;
+        return (CORE_ADDR) 0;
     }
     *insn_addr = corrected_address;
   }
@@ -235,10 +227,12 @@ build_compile_trampoline(struct gdbarch *gdbarch, struct compile_module *module,
   int64_t long_jump_offset = return_address - (trampoline_end + 5);
   if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
   {
-    error(
+    /* Trampoline is not freed until program exits */
+    fprintf_filtered(gdb_stderr,
         "E.Jump pad too far from tracepoint for jump back (offset 0x%" PRIx64
         " > int32). \n",
         long_jump_offset);
+    return 0;
   }
 
   int jmp_offset = (int32_t)long_jump_offset;
@@ -249,19 +243,21 @@ build_compile_trampoline(struct gdbarch *gdbarch, struct compile_module *module,
   return trampoline;
 }
 
-void patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
+int patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
                 struct gdbarch *gdbarch)
 {
   int64_t long_jump_offset = trampoline_address - (addr + 5);
   if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
   {
-    error("E.Jump pad too far from tracepoint for jump (offset 0x%" PRIx64
-          " > int32). \n",
-          long_jump_offset);
+    fprintf_filtered(gdb_stderr,
+        "E.Jump pad too far from tracepoint for jump (offset 0x%" PRIx64
+        " > int32). \n",
+        long_jump_offset);
+    return -1;
   }
 
   int jump_offset = (int32_t)long_jump_offset;
-  printf("jump offset %x from %lx to %lx \n", jump_offset, addr,
+  fprintf_filtered(gdb_stdlog,"jump offset %x from %lx to %lx \n", jump_offset, addr,
          trampoline_address);
   unsigned char jump_insn[] = {0xe9, 0, 0, 0, 0};
   memcpy(jump_insn + 1, &jump_offset, 4);
@@ -276,6 +272,7 @@ void patch_jump(CORE_ADDR addr, CORE_ADDR trampoline_address,
   }
 
   target_write_memory(addr, jump_insn, 5);
+  return 0;
 }
 
 /* Convert a string describing a location to an instruction address. */
@@ -294,7 +291,6 @@ location_to_pc(const char *location)
 static void
 patch_code(const char *location, const char *code)
 {
-
   struct gdbarch *gdbarch = target_gdbarch();
 
   /* Convert location to an instruction address.  */
@@ -305,24 +301,33 @@ patch_code(const char *location, const char *code)
   compile_file_names fnames = compile_to_object(NULL, code, scope, addr);
   gdb::unlinker object_remover(fnames.object_file());
   gdb::unlinker source_remover(fnames.source_file());
-
+  printf("allocated memory for compiling \n");
   /* Load compiled code into memory.  */
   struct compile_module *compile_module = compile_object_load(fnames, scope, NULL);
+  printf("allocated more memory for compiling \n");
 
   /* Build a trampoline which calls the compiled code.  */
   CORE_ADDR return_address = find_return_address(gdbarch, &addr, true);
+  if (addr != 0)
+  {
+    Patch *patch = new Patch(compile_module->munmap_list_head, addr);
 
-  Patch *patch = new Patch(compile_module->munmap_list_head, addr);
+    CORE_ADDR trampoline_address = build_compile_trampoline(gdbarch,
+        compile_module, patch, return_address);
 
-  CORE_ADDR trampoline_address = build_compile_trampoline(gdbarch,
-      compile_module, patch, return_address);
+    patch->trampoline_address = trampoline_address;
 
-  patch->trampoline_address = trampoline_address;
-
-  /* Patch in the code the jump to the trampoline.  */
-  patch_jump(addr, trampoline_address, gdbarch);
-
-  all_patches.add(patch);
+    /* Patch in the code the jump to the trampoline.  */
+    if (trampoline_address != 0 && 
+        patch_jump(addr, trampoline_address, gdbarch) == 0)
+    {
+      all_patches.add(patch);
+    }
+    else
+    {
+      delete patch;
+    }
+  }
   /* Free unused memory */
   /* Some memory is left allocated in the inferior because
      we still need to access it to execute the compiled code.  */
@@ -339,9 +344,18 @@ patch_code(const char *location, const char *code)
 void 
 compile_patch_code_command(const char *arg, int from_tty)
 {
+  if (arg == NULL)
+  {
+    error("No arguments were entered for the patch code command.");
+  }
   char *dup = strdup(arg);
   const char *location = strtok(dup, " ");
   const char *code = strtok(NULL, "\0");
+  if (code == NULL)
+  { 
+    free(dup);
+    error("Missing the code argument for the patch code command.");
+  }
   patch_code(location, code);
   free(dup);
 }
@@ -354,9 +368,18 @@ compile_patch_code_command(const char *arg, int from_tty)
 void 
 compile_patch_file_command(const char *arg, int from_tty)
 {
+  if (arg == NULL)
+  {
+    error("No arguments were entered for the patch file command.");
+  }
   char *dup = strdup(arg);
   const char *location = strtok(dup, " ");
   const char *source_file = strtok(NULL, " ");
+  if (source_file == NULL)
+  {
+    free(dup);
+    error("Missing the second argument for the patch code command.");
+  }
   gdb::unique_xmalloc_ptr<char> abspath = gdb_abspath(source_file);
   std::string code_buf = string_printf("#include \"%s\"\n", abspath.get());
   patch_code(location, code_buf.c_str());
@@ -425,15 +448,23 @@ void compile_patch_delete_command(const char *arg, int from_tty)
   }
   int index = atoi(arg);
   Patch *patch = all_patches.find_index(index);
+  if (patch==NULL)
+  {
+    fprintf_filtered(gdb_stdlog, "No patch has been found for index %d\n",index);
+    return;
+  }
   std::vector<Patch *> *patches_at_address = all_patches.find_address(patch->address);
   
   CORE_ADDR to_change = patch->address;
   
   auto it = patches_at_address->begin();
-  for(;*it!=patch;it++);
+  for(;*it!=patch;it++){
+    printf("address 0x%lx \n", (*it)->address);
+  };
   it++;
   if(it!=patches_at_address->end())
   {
+    printf("address after 0x%lx \n", (*it)->address);
     to_change = (*it)->relocated_insn_address;
   }
 
