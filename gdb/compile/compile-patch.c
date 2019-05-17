@@ -31,14 +31,16 @@
 #include "compile-object-load.h"
 #include "observable.h"
 #include "patch.h"
-#include <map>
+#include "memory-map.h"
+
 
 #define JMP_INSN_LENGTH 5
-#define PAGE_SIZE 0x1000
 #define TP_SIZE 0x100
-#define PAGE_ADDRESS(a) ((a/PAGE_SIZE) * PAGE_SIZE)
 #define MINIMUM_ADDRESS(a) ((a>>29) > 0 ? (((a>>29) -1)<<29) : 0x100000)
+
+
 PatchVector all_patches;
+amd64_MemoryMap memMap;
 
 /* Finds the return address for a trampoline placed at insn_addr.  */
 static CORE_ADDR
@@ -55,90 +57,12 @@ find_return_address (struct gdbarch *gdbarch, CORE_ADDR insn_addr,
   return return_address;
 }
 
-/* Is the page containing addr available ? If so map it.  */
-static CORE_ADDR
-can_mmap(gdbarch *gdbarch, CORE_ADDR addr, int trampoline_size)
-{
-  const int prot = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
-  
-  CORE_ADDR mmapped_area = gdbarch_infcall_mmap(gdbarch, addr, PAGE_SIZE, prot);
-  
-  if(mmapped_area <= addr && mmapped_area + PAGE_SIZE > addr)
-  {
-    /* The trampoline overlaps several pages */
-    if(mmapped_area + PAGE_SIZE < addr + trampoline_size)
-    {
-      CORE_ADDR second_mmap = gdbarch_infcall_mmap(gdbarch, mmapped_area + PAGE_SIZE, PAGE_SIZE, prot);
-      if(second_mmap == mmapped_area + PAGE_SIZE)
-      {
-        return mmapped_area;
-      }
-      else
-      {
-        gdbarch_infcall_munmap(gdbarch, mmapped_area, PAGE_SIZE);
-        gdbarch_infcall_munmap(gdbarch, second_mmap, PAGE_SIZE);
-        return (CORE_ADDR) 0;
-      }
-    }
-    return mmapped_area;
-  }
-  gdbarch_infcall_munmap(gdbarch, mmapped_area, PAGE_SIZE);
-  return (CORE_ADDR) 0;
-}
-
-/* This function aims to find the next available chunk of memory from min_tp_address
-   where we have enough room to put a trampoline of size trampoline_size.
-   It keeps a map pointing to the next available portion of memory given a minimum address.  */
-static CORE_ADDR
-try_put_trampoline(gdbarch *gdbarch, CORE_ADDR min_tp_address, int trampoline_size)
-{
-  int max_pages_searched = 100;
-  static std::map<CORE_ADDR, CORE_ADDR> current_stack_top;
-  
-  /* We do not handle the case where the trampoline is larger than a page.  */
-  gdb_assert(trampoline_size < PAGE_SIZE);
-
-  /* Return value.  */
-  CORE_ADDR tp_address = min_tp_address;
-
-  if(current_stack_top.find(tp_address) != current_stack_top.end())
-  {
-    tp_address = current_stack_top[tp_address];
-    CORE_ADDR next_page = PAGE_ADDRESS(tp_address)+PAGE_SIZE;
-    CORE_ADDR tp_end = tp_address + trampoline_size;
-    if(tp_end <= next_page)
-    {
-      current_stack_top[tp_address] = tp_end;
-      return tp_address;
-    }
-    /* We don't have enought room to put all of the trampoline 
-      on this page but the next one is available.  */
-    if(can_mmap(gdbarch, next_page, 0) != 0)
-    {
-      current_stack_top[tp_address] = tp_end;
-      return tp_address;
-    }
-  }
-
-  for(int i = 0; i<max_pages_searched; i++)
-  {
-    if(can_mmap(gdbarch, tp_address, trampoline_size) != 0)
-    {
-      current_stack_top[tp_address] = tp_address + trampoline_size;
-      return tp_address;
-    }
-    tp_address = PAGE_ADDRESS(tp_address + PAGE_SIZE);
-  }
-
-  return 0;
-}
-
 /* Allocate some space for a trampoline.  */
 static CORE_ADDR
 allocate_trampoline (struct gdbarch *gdbarch, CORE_ADDR addr, int size)
 {
   CORE_ADDR min_tp_address = MINIMUM_ADDRESS(addr);
-  return try_put_trampoline(gdbarch, min_tp_address, size);
+  return memMap.allocate_after(gdbarch, min_tp_address, size);
 }
 
 static CORE_ADDR
@@ -169,8 +93,9 @@ build_compile_trampoline (struct gdbarch *gdbarch,
     target_write_memory (trampoline, trampoline_instr, trampoline_size);
 
     /* Relocate replaced instruction */
-    CORE_ADDR trampoline_end = trampoline + trampoline_size;
 
+    CORE_ADDR trampoline_end = trampoline + trampoline_size;
+    patch->relocated_insn_address = trampoline_end;
     gdbarch_relocate_instruction (gdbarch, &trampoline_end, insn_addr);
 
     /* Jump back to return address.  */
@@ -315,6 +240,67 @@ reset_patch_data (struct inferior *inferior)
   all_patches.reset();
 }
 
+/* Handle the input from the 'patch list' command.  The
+   "patch list" command is used to display all active patches in 
+   the inferior.  */
+void
+compile_patch_list_command (const char *arg, int from_tty)
+{
+  auto it = all_patches.patches.begin ();
+  int i = 0;
+  for (; it != all_patches.patches.end (); it++)
+    {
+      if (it->active)
+        {
+          fprintf_filtered (gdb_stdlog, "%i  address: 0x%lx\n", i,
+                            it->patch->address);
+        }
+      i++;
+    }
+}
+
+/* Handle the input from the 'patch delete' command.  The
+   "patch delete" command is used to remove a patch from the inferior.
+   It expects an index as argument.  */
+void
+compile_patch_delete_command (const char *arg, int from_tty)
+{
+  struct gdbarch *gdbarch = target_gdbarch ();
+
+  if (arg == NULL)
+    {
+      fprintf_filtered (gdb_stdlog,
+                        "patch delete needs a patch index. \n");
+      return;
+    }
+  int index = atoi (arg);
+  Patch *patch = all_patches.find_index (index);
+  if (patch == NULL)
+    {
+      fprintf_filtered (gdb_stdlog,
+                        "No patch has been found for index %d\n", index);
+      return;
+    }
+  std::vector<Patch *> patches_at_address
+      = all_patches.find_address (patch->address);
+
+  CORE_ADDR invalid_jump = patch->address;
+
+  auto it = patches_at_address.begin ();
+  for (; *it != patch; it++);
+  it++;
+  if (it != patches_at_address.end ())
+    {
+      invalid_jump = (*it)->relocated_insn_address;
+    }
+
+  gdbarch_relocate_instruction (gdbarch, &invalid_jump,
+                                patch->relocated_insn_address);
+
+  all_patches.remove (index);
+}
+
+/* Called on inferior exit. We reset everything */
 void
 _initialize_compile_patch (void)
 {

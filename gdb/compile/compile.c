@@ -1082,6 +1082,22 @@ Usage: compile patch file [LOCATION] [FILENAME]"),
   set_cmd_completer (c, filename_completer);
 
 
+  add_cmd ("list", class_obscure, compile_patch_list_command,
+	   _("\
+List all active patches.\n\
+\n\
+Usage: patch list "),
+	   &compile_patch_command_list);
+
+  add_cmd ("delete", class_obscure, compile_patch_delete_command,
+	   _("\
+Delete a specific active patch.\n\
+\n\
+Usage: patch delete [INDEX] \n\
+\n\
+Active patches can be listed with the 'patch list' command."),
+	   &compile_patch_command_list);
+
   add_setshow_boolean_cmd ("compile", class_maintenance, &compile_debug, _("\
 Set compile command debugging."), _("\
 Show compile command debugging."), _("\

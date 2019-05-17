@@ -11,12 +11,10 @@ private:
 public:
     CORE_ADDR trampoline_address;
     CORE_ADDR address;
+    CORE_ADDR relocated_insn_address;
 
-    Patch(munmap_list *mmp_list, CORE_ADDR addr)
-    {
-        munmap_list_head = mmp_list;
-        address = addr;
-    }
+    Patch(munmap_list *mmp_list, CORE_ADDR addr) 
+        : munmap_list_head(mmp_list), address(addr) {}
 
     ~Patch()
     {
