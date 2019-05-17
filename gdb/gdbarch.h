@@ -1646,6 +1646,16 @@ typedef std::string (gdbarch_get_pc_address_flags_ftype) (frame_info *frame, COR
 extern std::string gdbarch_get_pc_address_flags (struct gdbarch *gdbarch, frame_info *frame, CORE_ADDR pc);
 extern void set_gdbarch_get_pc_address_flags (struct gdbarch *gdbarch, gdbarch_get_pc_address_flags_ftype *get_pc_address_flags);
 
+/* Fill a trampoline by saving and restoring registers and calling 'called'.  */
+typedef int (gdbarch_fill_trampoline_ftype) (unsigned char *trampoline_instr, CORE_ADDR called, CORE_ADDR arg_regs);
+extern int gdbarch_fill_trampoline (struct gdbarch *gdbarch, unsigned char *trampoline_instr, CORE_ADDR called, CORE_ADDR arg_regs);
+extern void set_gdbarch_fill_trampoline (struct gdbarch *gdbarch, gdbarch_fill_trampoline_ftype *fill_trampoline);
+
+/* Insert a jump instruction from ''from'' to ''to'' */
+typedef int (gdbarch_patch_jump_ftype) (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to, int fill_nop);
+extern int gdbarch_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to, int fill_nop);
+extern void set_gdbarch_patch_jump (struct gdbarch *gdbarch, gdbarch_patch_jump_ftype *patch_jump);
+
 extern struct gdbarch_tdep *gdbarch_tdep (struct gdbarch *gdbarch);
 
 

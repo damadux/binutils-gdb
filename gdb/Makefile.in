@@ -315,7 +315,8 @@ SUBDIR_GCC_COMPILE_SRCS = \
 	compile/compile-cplus-types.c \
 	compile/compile-loc2c.c \
 	compile/compile-object-load.c \
-	compile/compile-object-run.c
+	compile/compile-object-run.c \
+	compile/compile-patch.c
 
 SUBDIR_GCC_COMPILE_OBS = $(patsubst %.c,%.o,$(filter %.c,$(SUBDIR_GCC_COMPILE_SRCS)))
 

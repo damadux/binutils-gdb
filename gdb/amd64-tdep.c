@@ -3093,6 +3093,132 @@ amd64_in_indirect_branch_thunk (struct gdbarch *gdbarch, CORE_ADDR pc)
 				       AMD64_RIP_REGNUM);
 }
 
+
+
+/* This fills the trampoline_instr buffer with instructions to save
+   and restore the registers, but does not relocate the replaced 
+   instruction. It returns the length of the trampoline.  */
+static int
+amd64_fill_trampoline (unsigned char *trampoline_instr, 
+                       CORE_ADDR called,
+                       CORE_ADDR arg_regs)
+{
+  int i = 0;
+  /* save registers */
+  /* Flags may cause a bug when stepped over.  */
+  trampoline_instr[i++] = 0x9c; /* pushfq */ 
+  trampoline_instr[i++] = 0x54; /* push %rsp */
+  trampoline_instr[i++] = 0x55; /* push %rbp */
+  trampoline_instr[i++] = 0x57; /* push %rdi */
+  trampoline_instr[i++] = 0x56; /* push %rsi */
+  trampoline_instr[i++] = 0x52; /* push %rdx */
+  trampoline_instr[i++] = 0x51; /* push %rcx */
+  trampoline_instr[i++] = 0x53; /* push %rbx */
+  trampoline_instr[i++] = 0x50; /* push %rax */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x57; /* push %r15 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x56; /* push %r14 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x55; /* push %r13 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x54; /* push %r12 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x53; /* push %r11 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x52; /* push %r10 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x51; /* push %r9 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x50; /* push %r8 */
+
+      
+
+  /* Provide gdb_expr () arguments.  */
+  trampoline_instr[i++] = 0x48; /* movabs <arg>,%rdi */
+  trampoline_instr[i++] = 0xbf;
+  memcpy (trampoline_instr + i, &arg_regs, 8);
+  i += 8;
+  /* Only %rbp is currently stored as argument to _gdb_expr_ now.  */
+  trampoline_instr[i++] = 0x48; /* mov %rbp, (%rdi) */
+  trampoline_instr[i++] = 0x89;
+  trampoline_instr[i++] = 0x2f;
+
+  /* call gdb_expr () */
+  trampoline_instr[i++] = 0x48; /* movabs <called>,%rax */
+  trampoline_instr[i++] = 0xb8;
+  memcpy (trampoline_instr + i, &called, 8);
+  i += 8;
+  trampoline_instr[i++] = 0xff; /* callq *%rax */
+  trampoline_instr[i++] = 0xd0;
+
+  /* restore registers */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x58; /* pop %r8 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x59; /* pop %r9 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5a; /* pop %r10 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5b; /* pop %r11 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5c; /* pop %r12 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5d; /* pop %r13 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5e; /* pop %r14 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5f; /* pop %r15 */
+  trampoline_instr[i++] = 0x58; /* pop %rax */
+  trampoline_instr[i++] = 0x5b; /* pop %rbx */
+  trampoline_instr[i++] = 0x59; /* pop %rcx */
+  trampoline_instr[i++] = 0x5a; /* pop %rdx */
+  trampoline_instr[i++] = 0x5e; /* pop %rsi */
+  trampoline_instr[i++] = 0x5f; /* pop %rdi */
+  trampoline_instr[i++] = 0x5d; /* pop %rbp */
+  trampoline_instr[i++] = 0x5c; /* pop %rsp */
+  trampoline_instr[i++] = 0x9d; /* popfq */
+
+  return i;
+}
+
+/* Inserts a jump from ''from'' to ''to''. If fill not is set to 1,
+   this functions sets the bytes after the jump to NOP to clarify the code.  */
+int
+amd64_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, 
+                  CORE_ADDR to, int fill_nop)
+{
+  int64_t long_jump_offset = to - (from + 5);
+  if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
+    {
+      fprintf_filtered (
+          gdb_stderr,
+          "E.Jump pad too far from instruction for jump (offset 0x%" PRIx64
+          " > int32). \n",
+          long_jump_offset);
+      return -1;
+    }
+
+  int32_t jump_offset = (int32_t)long_jump_offset;
+  fprintf_filtered (gdb_stdlog, "jump offset 0x%x from 0x%lx to 0x%lx \n",
+                    jump_offset, from, to);
+  gdb_byte jump_insn[] = { 0xe9, 0, 0, 0, 0 };
+  memcpy (jump_insn + 1, &jump_offset, 4);
+
+  /* Add nops to clarify the code if the instruction was too long. 
+     These should never be hit.  */
+  if (fill_nop == 1 && gdb_insn_length (gdbarch, from) > 5)
+    {
+      const gdb_byte NOP_buffer[] = { 0x90, 0x90, 0x90, 0x90, 0x90,
+                                           0x90, 0x90, 0x90, 0x90, 0x90 };
+      target_write_memory (from + 5, NOP_buffer,
+                           gdb_insn_length (gdbarch, from) - 5);
+    }
+
+  target_write_memory (from, jump_insn, 5);
+  return 0;
+}
+
 void
 amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
 		const target_desc *default_tdesc)
@@ -3260,6 +3386,9 @@ amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
 
   set_gdbarch_in_indirect_branch_thunk (gdbarch,
 					amd64_in_indirect_branch_thunk);
+
+  set_gdbarch_fill_trampoline(gdbarch, amd64_fill_trampoline);
+  set_gdbarch_patch_jump(gdbarch, amd64_patch_jump);
 }
 
 /* Initialize ARCH for x86-64, no osabi.  */

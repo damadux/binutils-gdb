@@ -359,6 +359,9 @@ struct gdbarch
   const disasm_options_and_args_t * valid_disassembler_options;
   gdbarch_type_align_ftype *type_align;
   gdbarch_get_pc_address_flags_ftype *get_pc_address_flags;
+  gdbarch_fill_trampoline_ftype *fill_trampoline;
+  gdbarch_patch_jump_ftype *patch_jump;
+
 };
 
 /* Create a new ``struct gdbarch'' based on information provided by
@@ -475,6 +478,9 @@ gdbarch_alloc (const struct gdbarch_info *info,
   gdbarch->addressable_memory_unit_size = default_addressable_memory_unit_size;
   gdbarch->type_align = default_type_align;
   gdbarch->get_pc_address_flags = default_get_pc_address_flags;
+  gdbarch->fill_trampoline = NULL;
+  gdbarch->patch_jump = NULL;
+
   /* gdbarch_alloc() */
 
   return gdbarch;
@@ -724,6 +730,8 @@ verify_gdbarch (struct gdbarch *gdbarch)
   /* Skip verify of valid_disassembler_options, invalid_p == 0 */
   /* Skip verify of type_align, invalid_p == 0 */
   /* Skip verify of get_pc_address_flags, invalid_p == 0 */
+  /* Skip verify of fill_trampoline, invalid_p == 0 */
+  /* Skip verify of patch_jump, invalid_p == 0 */
   if (!log.empty ())
     internal_error (__FILE__, __LINE__,
                     _("verify_gdbarch: the following are invalid ...%s"),
@@ -1002,6 +1010,12 @@ gdbarch_dump (struct gdbarch *gdbarch, struct ui_file *file)
   fprintf_unfiltered (file,
                       "gdbarch_dump: fetch_tls_load_module_address = <%s>\n",
                       host_address_to_string (gdbarch->fetch_tls_load_module_address));
+  fprintf_unfiltered (file,
+                      "gdbarch_dump: fill_trampoline = <%s>\n",
+                      host_address_to_string (gdbarch->fill_trampoline));
+  fprintf_unfiltered (file,
+                      "gdbarch_dump: patch_jump = <%s>\n",
+                      host_address_to_string (gdbarch->patch_jump));
   fprintf_unfiltered (file,
                       "gdbarch_dump: gdbarch_find_memory_regions_p() = %d\n",
                       gdbarch_find_memory_regions_p (gdbarch));
@@ -5569,6 +5583,44 @@ struct gdbarch *
 target_gdbarch (void)
 {
   return current_inferior ()->gdbarch;
+}
+
+void
+set_gdbarch_fill_trampoline (struct gdbarch *gdbarch,
+                                  gdbarch_fill_trampoline_ftype fill_trampoline)
+{
+  gdbarch->fill_trampoline = fill_trampoline;
+}
+
+int gdbarch_fill_trampoline (struct gdbarch *gdbarch,
+                             unsigned char *trampoline_instr,
+                             CORE_ADDR called,
+                             CORE_ADDR arg_regs)
+{
+  gdb_assert (gdbarch != NULL);
+  gdb_assert (gdbarch->fill_trampoline != NULL);
+  if (gdbarch_debug >= 2)
+    fprintf_unfiltered (gdb_stdlog, "gdbarch_fill_trampoline called\n");
+  return gdbarch->fill_trampoline(trampoline_instr, called, arg_regs);
+}
+
+void
+set_gdbarch_patch_jump (struct gdbarch *gdbarch,
+                        gdbarch_patch_jump_ftype patch_jump)
+{
+  gdbarch->patch_jump = patch_jump;
+}
+
+int gdbarch_patch_jump (struct gdbarch *gdbarch,
+                        CORE_ADDR from,
+                        CORE_ADDR to,
+                        int fill_nop)
+{
+  gdb_assert (gdbarch != NULL);
+  gdb_assert (gdbarch->patch_jump != NULL);
+  if (gdbarch_debug >= 2)
+    fprintf_unfiltered (gdb_stdlog, "gdbarch_patch_jump called\n");
+  return gdbarch->patch_jump(gdbarch, from, to, fill_nop);
 }
 
 void

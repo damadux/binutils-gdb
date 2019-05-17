@@ -43,8 +43,8 @@
 #include "gdbsupport/gdb_optional.h"
 #include "gdbsupport/gdb_unlinker.h"
 #include "gdbsupport/pathstuff.h"
-
-
+#include "compile-patch.h"
+#include "observable.h"
 
 /* Initial filename for temporary files.  */
 
@@ -53,6 +53,11 @@
 /* Hold "compile" commands.  */
 
 static struct cmd_list_element *compile_command_list;
+
+/* Hold "patch" commands.  */
+
+static struct cmd_list_element *compile_patch_command_list;
+
 
 /* Debug flag for "compile" commands.  */
 
@@ -1049,6 +1054,33 @@ but no count or size letter (see \"x\" command)."),
 	       compile_print_help.c_str (),
 	       &compile_command_list);
   set_cmd_completer_handle_brkchars (c, print_command_completer);
+
+  compile_cmd_element = add_prefix_cmd ("patch", class_obscure,
+					compile_patch_command, _("\
+Command to compile source code and patch it into the inferior."),
+		  &compile_patch_command_list, "patch ", 1, &cmdlist);
+
+  add_cmd ("code", class_obscure, compile_patch_code_command,
+	   _("\
+Compile, and patch code at location.\n\
+\n\
+Usage: patch code [LOCATION] [CODE]\n\
+\n\
+The source code may be specified as a simple one line expression, e.g.:\n\
+\n\
+    patch code main:2 printf(\"Hello world\\n\");\n\
+\n\
+It will be executed each time the instruction at location is hit."),
+	   &compile_patch_command_list);
+
+  c = add_cmd ("file", class_obscure, compile_patch_file_command,
+	       _("\
+Compile and patch in a file containing source code.\n\
+\n\
+Usage: compile patch file [LOCATION] [FILENAME]"),
+	       &compile_patch_command_list);
+  set_cmd_completer (c, filename_completer);
+
 
   add_setshow_boolean_cmd ("compile", class_maintenance, &compile_debug, _("\
 Set compile command debugging."), _("\
