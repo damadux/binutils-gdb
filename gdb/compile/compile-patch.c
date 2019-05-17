@@ -424,6 +424,40 @@ compile_patch_command (const char *arg, int from_tty)
   compile_patch_code_command (arg, from_tty);
 }
 
+/* Handle the input from the 'patch where' command.  The
+   "patch where" command is used to print the address of the next
+   possible insertion from the address given as argument.  */
+void
+compile_patch_where_command (const char *arg, int from_tty)
+{
+  struct gdbarch *gdbarch = target_gdbarch ();
+
+  CORE_ADDR addr = location_to_pc (arg);
+  CORE_ADDR new_address = addr;
+  find_return_address (gdbarch, &new_address, false);
+  if (new_address == 0)
+    {
+      return;
+    }
+  struct symtab_and_line sal
+      = find_pc_sect_line (new_address, find_pc_section (new_address), 0);
+
+  if (new_address == addr)
+    {
+      fprintf_filtered (
+          gdb_stdlog, "Insertion possible at address 0x%lx on line %d\n",
+          new_address, sal.line);
+    }
+  else
+    {
+      fprintf_filtered (
+          gdb_stdlog, "Insertion not possible at address 0x%lx\n", addr);
+      fprintf_filtered (gdb_stdlog,
+                        "Next possible address 0x%lx on line %d\n",
+                        new_address, sal.line);
+    }
+}
+
 /* Called on inferior exit. We reset everything */
 void
 reset_patch_data (struct inferior *inferior)
