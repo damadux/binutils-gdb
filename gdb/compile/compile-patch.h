@@ -22,6 +22,12 @@ extern void compile_patch_file_command(const char *arg, int from_tty);
 
 extern void compile_patch_command(const char *arg, int from_tty);
 
+/* Handle the input from the 'patch where' command.  The
+   "patch where" command is used to print the address of the next
+   possible insertion from the address given as argument.  */
+
+extern void compile_patch_where_command(const char *arg, int from_tty);
+
 /* Resets static data on inferior exit.  */
 
 extern void reset_patch_data (struct inferior *inf);
