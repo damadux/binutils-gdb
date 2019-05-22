@@ -1015,6 +1015,15 @@ Usage: patch where [LOCATION] \n\
 Typically, this will point to the next 5 byte instruction."),
 	   &compile_patch_command_list);
 
+add_cmd ("goto", class_obscure, compile_patch_goto_command,
+	   _("\
+Replace an instruction with a jump.\n\
+\n\
+Usage: patch goto [-f|-force] [LOCATION] \n\
+The -force option will garantee that the instruction at LOCATION\n\
+is replaced, but it may corrupt the following instructions."),
+	   &compile_patch_command_list);
+
   add_cmd ("list", class_obscure, compile_patch_list_command,
 	   _("\
 List all active patches.\n\
