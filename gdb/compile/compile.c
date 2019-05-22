@@ -43,7 +43,6 @@
 #include "common/gdb_unlinker.h"
 #include "common/pathstuff.h"
 #include "compile-patch.h"
-
 #include "observable.h"
 
 
