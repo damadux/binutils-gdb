@@ -30,6 +30,7 @@
 #include "compile.h"
 #include "compile-object-load.h"
 #include "patch.h"
+#include "cli/cli-utils.h"
 
 PatchVector all_patches;
 
@@ -454,6 +455,82 @@ compile_patch_where_command (const char *arg, int from_tty)
                         "Next possible address 0x%lx on line %d\n",
                         new_address, sal.line);
     }
+}
+
+/* Insert a jump from [from] to [to].  */ 
+void
+patch_goto(const char *from, const char *to, bool force)
+{
+  CORE_ADDR addr_from = location_to_pc (from);
+  CORE_ADDR addr_to = location_to_pc (to);
+  unsigned char jmp_buf[5] = {0xe9, 0x0, 0x0, 0x0, 0x0};
+  if(force == 0)
+  {
+    /* find where to insert the jump */
+    struct gdbarch *gdbarch = target_gdbarch();
+    find_return_address(gdbarch,&addr_from,false);
+  }
+  int64_t long_jump_offset = addr_to - addr_from -sizeof(jmp_buf);
+  if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
+    {
+      fprintf_filtered (
+          gdb_stderr,
+          "E.Destination too far from instruction for jump (offset 0x%" PRIx64
+          " > int32). \n",
+          long_jump_offset);
+      return;
+    }
+
+  int32_t jump_offset = (int32_t)long_jump_offset;
+  memcpy(jmp_buf+1,&jump_offset,sizeof(jump_offset));
+  target_write_memory(addr_from,jmp_buf,sizeof(jmp_buf));
+
+}
+
+/* Check *ARG for a "-forced" or "-f" argument.  Return 0 if not seen.
+   Return 1 if seen and update *ARG.  */
+
+static int
+check_force_argument (const char **arg)
+{
+  *arg = skip_spaces (*arg);
+
+  if (arg != NULL
+      && (check_for_argument (arg, "-force", sizeof ("-force") - 1)
+	  || check_for_argument (arg, "-f", sizeof ("-f") - 1)))
+      return 1;
+  return 0;
+}
+
+/* Handle the input from the 'patch goto' command.  The
+   "patch goto" command is used to replace an instruction with a jump
+   to a specified location.  */
+
+void
+compile_patch_goto_command(const char *arg, int from_tty)
+{
+  if (arg == NULL)
+    {
+      error ("No arguments were entered for the patch goto command.");
+    }
+  int forced = check_force_argument(&arg);
+  char *dup = strdup (arg);
+  const char *from = strtok (dup, " ");
+  const char *to = strtok (NULL, "\0");
+  
+  if (from == NULL)
+    {
+      free(dup);
+      error ("Missing first argument (\"from\") for the patch goto command.");
+    }
+  if (to == NULL)
+    {
+      free(dup);
+      error ("Missing second argument (\"to\") for the patch goto command.");
+    }
+  patch_goto(from,to,forced);
+  
+  free (dup);
 }
 
 /* Handle the input from the 'patch list' command.  The
