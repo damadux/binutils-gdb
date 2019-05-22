@@ -330,11 +330,9 @@ patch_code (const char *location, const char *code)
   compile_file_names fnames = compile_to_object (NULL, code, scope, addr);
   gdb::unlinker object_remover (fnames.object_file ());
   gdb::unlinker source_remover (fnames.source_file ());
-  printf ("allocated memory for compiling \n");
   /* Load compiled code into memory.  */
   struct compile_module *compile_module
       = compile_object_load (fnames, scope, NULL);
-  printf ("allocated more memory for compiling \n");
 
   /* Build a trampoline which calls the compiled code.  */
   CORE_ADDR return_address = find_return_address (gdbarch, &addr, true);
@@ -507,12 +505,10 @@ compile_patch_delete_command (const char *arg, int from_tty)
   auto it = patches_at_address->begin ();
   for (; *it != patch; it++)
     {
-      printf ("address 0x%lx \n", (*it)->address);
     };
   it++;
   if (it != patches_at_address->end ())
     {
-      printf ("address after 0x%lx \n", (*it)->address);
       to_change = (*it)->relocated_insn_address;
     }
 
