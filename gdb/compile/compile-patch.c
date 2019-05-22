@@ -136,7 +136,7 @@ find_return_address (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
               in order to free the allocated memory */
               fprintf_filtered (
                   gdb_stderr,
-                  "May not have a fast tracepoint at %s or before the end "
+                  "May not have a fast isntruction at %s or before the end "
                   "of the function.\n",
                   paddress (gdbarch, *insn_addr));
               *insn_addr = (CORE_ADDR)0;
@@ -156,7 +156,7 @@ find_return_address (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
               symtab_to_filename_for_display (sal.symtab), sal.line))
         {
           fprintf_filtered (gdb_stderr,
-                            "May not have a fast tracepoint at %s",
+                            "May not patch a jump at %s",
                             paddress (gdbarch, *insn_addr));
           *insn_addr = (CORE_ADDR)0;
           return (CORE_ADDR)0;
@@ -254,13 +254,13 @@ build_compile_trampoline (struct gdbarch *gdbarch,
       /* Trampoline is not freed until program exits */
       fprintf_filtered (
           gdb_stderr,
-          "E.Jump pad too far from tracepoint for jump back (offset 0x%" PRIx64
+          "E.Jump pad too far from instruction for jump back (offset 0x%" PRIx64
           " > int32). \n",
           long_jump_offset);
       return 0;
     }
 
-  int jmp_offset = (int32_t)long_jump_offset;
+  int32_t jmp_offset = (int32_t)long_jump_offset;
   unsigned char jmp_back[5] = { 0xe9, 0, 0, 0, 0 };
   memcpy (jmp_back + 1, &jmp_offset, 4);
   target_write_memory (trampoline_end, jmp_back, 5);
@@ -277,13 +277,13 @@ patch_jump (CORE_ADDR addr, CORE_ADDR trampoline_address,
     {
       fprintf_filtered (
           gdb_stderr,
-          "E.Jump pad too far from tracepoint for jump (offset 0x%" PRIx64
+          "E.Jump pad too far from instruction for jump (offset 0x%" PRIx64
           " > int32). \n",
           long_jump_offset);
       return -1;
     }
 
-  int jump_offset = (int32_t)long_jump_offset;
+  int32_t jump_offset = (int32_t)long_jump_offset;
   fprintf_filtered (gdb_stdlog, "jump offset %x from %lx to %lx \n",
                     jump_offset, addr, trampoline_address);
   unsigned char jump_insn[] = { 0xe9, 0, 0, 0, 0 };
