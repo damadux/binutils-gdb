@@ -13698,8 +13698,7 @@ breakpoint_re_set_default (struct breakpoint *b)
   update_breakpoint_locations (b, filter_pspace, expanded, expanded_end);
 }
 
-/* Default method for creating SALs from an address string.  It basically
-   calls parse_breakpoint_sals.  Return 1 for success, zero for failure.  */
+/* See breakpoint.h.  */
 
 void
 create_sals_from_location_default (const struct event_location *location,
