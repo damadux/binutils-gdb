@@ -157,7 +157,7 @@ find_return_address (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
               symtab_to_filename_for_display (sal.symtab), sal.line))
         {
           fprintf_filtered (gdb_stderr,
-                            "May not patch a jump at %s",
+                            "May not patch a jump at %s\n",
                             paddress (gdbarch, *insn_addr));
           *insn_addr = (CORE_ADDR)0;
           return (CORE_ADDR)0;
