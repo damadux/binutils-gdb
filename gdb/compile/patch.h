@@ -1,3 +1,5 @@
+#ifndef PATCH_H
+#define PATCH_H
 #include "defs.h"
 #include "compile-object-load.h"
 
@@ -25,56 +27,56 @@ public:
     }
 };
 
+struct patch_info
+{
+    Patch *patch;
+
+    bool active;
+};
+
 /* A set of patches that can be searched by index or address.  */
 class PatchVector
 {
 public:
-    PatchVector(){};
-    std::vector<Patch *> patches;
-    std::vector<bool> active;
+    std::vector<patch_info> patches;
+    
     int add(Patch *patch)
     {
-        patches.push_back(patch);
-        active.push_back(true);
+        struct patch_info info;
+        info.patch = patch;
+        info.active = true;
+        patches.push_back(info);
         return patches.size();
     }
     
     Patch *find_index(int i)
     {
-        if(active[i])
+        if(patches[i].active)
         {
-            return patches[i];
+            return patches[i].patch;
         }
         return NULL;
     }
 
-    int remove(int i)
+    void remove(int i)
     {
-        if(active[i])
-        {
-            active[i]=false;
-            return 0;
-        }
-        return -1;
+        patches[i].active=false;
     }
 
     /* returned vector needs to be freed */ 
-    std::vector<Patch *> *find_address(CORE_ADDR address)
+    std::vector<Patch *> find_address(CORE_ADDR address)
     {
-        std::vector<Patch *> *patches_found = new std::vector<Patch *>();
-        int i = 0;
+        std::vector<Patch *> patches_found;
         auto it = patches.begin();
         for(;it!= patches.end();it++){
-            if((*it)->address == address)
+            if((it->patch)->address == address)
             {
-                if(active[i]){
-                    patches_found->push_back(*it);
+                if(it->active){
+                    patches_found.push_back(it->patch);
                 }
-                i++;
             }
         }
         return patches_found;
     }
 
-
-};
+#endif /* PATCH_H */

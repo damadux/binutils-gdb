@@ -540,13 +540,14 @@ void
 compile_patch_list_command (const char *arg, int from_tty)
 {
   auto it = all_patches.patches.begin ();
-  int i = 0;
+  int i = 1;
   for (; it != all_patches.patches.end (); it++)
     {
-      if (all_patches.active[i])
+      if (it->active)
         {
           fprintf_filtered (gdb_stdlog, "%i  address: 0x%lx\n", i,
-                            (*it)->address);
+                            (it->patch)->address);
+          
         }
       i++;
     }
@@ -566,25 +567,43 @@ compile_patch_delete_command (const char *arg, int from_tty)
                         "patch delete needs a patch index. \n");
       return;
     }
-  int index = atoi (arg);
+  int index = atoi (arg)-1;
+  if (index == -1)
+  {
+    auto it = all_patches.patches.begin ();
+    int i = 1;
+    char index_string[10];
+    for (; it != all_patches.patches.end (); it++)
+      {
+        if (it->active)
+          {
+            printf("deleting patch %d\n",i);
+            sprintf(index_string,"%d",i);
+            compile_patch_delete_command(index_string,0);
+          }
+        i++;
+      }
+    return;
+  }
+
   Patch *patch = all_patches.find_index (index);
   if (patch == NULL)
     {
       fprintf_filtered (gdb_stdlog,
-                        "No patch has been found for index %d\n", index);
+                        "No patch has been found for index %d\n", index+1);
       return;
     }
-  std::vector<Patch *> *patches_at_address
+  std::vector<Patch *> patches_at_address
       = all_patches.find_address (patch->address);
 
   CORE_ADDR to_change = patch->address;
 
-  auto it = patches_at_address->begin ();
+  auto it = patches_at_address.begin ();
   for (; *it != patch; it++)
     {
     };
   it++;
-  if (it != patches_at_address->end ())
+  if (it != patches_at_address.end ())
     {
       to_change = (*it)->relocated_insn_address;
     }
@@ -606,14 +625,12 @@ reset_patch_data (struct inferior *inferior)
 
   /* Delete all live patches object */
   auto it = all_patches.patches.begin ();
-  int i = 0;
   for (; it != all_patches.patches.end (); it++)
     {
-      if (all_patches.active[i])
+      if (it->active)
         {
-          delete *it;
+          delete it->patch;
         }
-      i++;
     }
   /* Reset the list of patches */
   all_patches = PatchVector ();
