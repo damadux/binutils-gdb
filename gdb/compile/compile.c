@@ -1040,6 +1040,26 @@ Usage: patch delete [INDEX] \n\
 Active patches can be listed with the 'patch list' command."),
 	   &compile_patch_command_list);
 
+  add_cmd ("store", class_obscure, compile_patch_store_command,
+	   _("\
+Store patch information.\n\
+\n\
+Usage: patch store [FILENAME] \n\
+\n\
+This is useful for detaching from a process and being able to \n\
+re attach afterwards."),
+	   &compile_patch_command_list);
+
+  add_cmd ("load", class_obscure, compile_patch_load_command,
+	   _("\
+Load patch information from a file.\n\
+\n\
+Usage: patch load [FILENAME] \n\
+\n\
+This is useful when attaching to a process that has previously \n\
+been patched."),
+	   &compile_patch_command_list);
+
   add_setshow_boolean_cmd ("compile", class_maintenance, &compile_debug, _("\
 Set compile command debugging."), _("\
 Show compile command debugging."), _("\

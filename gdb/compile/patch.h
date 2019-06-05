@@ -21,9 +21,29 @@ public:
         address = addr;
     }
 
+    Patch(const char *load_string)
+    {
+        const char *next;
+        address = (CORE_ADDR) strtol(load_string, (char **) &next,10);
+        if(*next == ' ')
+        {
+            next++;
+        }
+        relocated_insn_address = (CORE_ADDR) strtol(next,NULL,10);
+        munmap_list_head = NULL;
+    }
+
+    void store(char *store_string)
+    {
+        sprintf(store_string,"%lu %lu\n",address, relocated_insn_address);
+    }
+
     ~Patch()
     {
-        delete munmap_list_head;
+        if (munmap_list_head != NULL)
+        {
+            delete munmap_list_head;
+        }
     }
 };
 
@@ -78,5 +98,34 @@ public:
         }
         return patches_found;
     }
+    void store(const char *path)
+    {
+        FILE *file = fopen(path,"w");
+        auto it = patches.begin();
+        char line[128];
+        for(;it!= patches.end();it++){
+            (it->patch)->store(line);
+            fputs(line,file);
+        }
+        fclose(file);
+    }
+    void load(const char *path)
+    {
+        FILE *file = fopen(path,"r");
+        if ( file != NULL )
+        {
+            char line [ 128 ];
+            while ( fgets ( line, sizeof(line), file ) != NULL ) 
+            {
+                Patch *p = new Patch(line);
+                struct patch_info info;
+                info.patch = p;
+                info.active = true;
+                patches.push_back(info);
+            }
+            fclose ( file );
+        }
+    }
+};
 
 #endif /* PATCH_H */

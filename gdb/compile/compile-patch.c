@@ -612,8 +612,19 @@ compile_patch_delete_command (const char *arg, int from_tty)
                                 patch->relocated_insn_address);
 
   all_patches.remove (index);
-  delete patches_at_address;
   delete patch;
+}
+
+void
+compile_patch_store_command (const char *arg, int from_tty)
+{
+  all_patches.store(arg);
+}
+
+void
+compile_patch_load_command (const char *arg, int from_tty)
+{
+  all_patches.load(arg);
 }
 
 /* Called on inferior exit. We reset everything */
