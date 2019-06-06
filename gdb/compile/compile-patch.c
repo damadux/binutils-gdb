@@ -190,7 +190,7 @@ allocate_trampoline (struct gdbarch *gdbarch, int size)
 
   gdb_assert (size <= page_size);
   if (trampoline_address == 0
-      || trampoline_address + size > trampoline_mmap_address)
+      || trampoline_address + 2*size > trampoline_mmap_address)
     {
       /* Allocate a new chunk of memory of one page*/
       trampoline_address = gdbarch_infcall_mmap (
