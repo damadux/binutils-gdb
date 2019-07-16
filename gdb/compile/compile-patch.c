@@ -168,6 +168,59 @@ find_return_address (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
       = *insn_addr + gdb_insn_length (gdbarch, *insn_addr);
   return return_address;
 }
+
+
+
+CORE_ADDR
+find_return_address_amad3 (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
+                     CORE_ADDR *tp_address, bool verbose)
+{
+  /* In this implementation we try to make it possible to instrument
+    short (<5 bytes) instructions. In order to do that we replace the 
+    first byte of the instrumented instruction with a jump (e9) instruction.
+    Then we consider the beginning of the next instruction to be part of the
+    jump offset. i e if we want to insert a jump on I1:
+        I1 I1 I1 I2 I2 ...  
+    ->  E9 XX XX I2 I2 ...
+    And we try and find the XX XX so that the jump points to an available
+    address where we put the jump pad. */
+
+    /* If we don't find it using those bytes, we can try to modify the next one too
+        E9 XX XX E9 XX ... */
+
+  /* Find length of first instruction */
+  // int insn_length = gdb_insn_length(gdbarch, *insn_addr);
+  // /* Scan memory to find where to place jump */
+  // switch(insn_length)
+  // {
+  //   case 1:
+  //   case 2:
+  //   case 3:
+  //   /* The range here is 65K */
+  //         tp_address = allocate_trampoline_close(gdbarch,0x80);
+  //   case 4:
+  //   /* We have a range of 16M so we check if we can access the default trampoline position */
+  //     tp_address = allocate_trampoline(gdbarch, 0x80); // size hardcoded !
+  //     int64_t long_jump_offset = tp_address - insn_address - 0x5;
+  //     if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
+  //       {
+  //         tp_address = allocate_trampoline_close(gdbarch,0x80);
+  //       }
+  //     break;
+  //   default:
+  //     tp_address = allocate_trampoline(gdbarch, 0x80);
+  //     break;
+  // }
+  CORE_ADDR return_address
+          = *insn_addr + gdb_insn_length (gdbarch, *insn_addr);
+  while (return_address < *insn_addr + 5)
+  {
+    return_address+=gdb_insn_length (gdbarch, return_address);
+  }
+  return return_address;
+  
+}
+
 /* Allocate some space for a trampoline.
    mmap is done one page at a time, 
    a larger trampoline cannot be allocated.  */
@@ -204,6 +257,130 @@ allocate_trampoline (struct gdbarch *gdbarch, int size)
   return trampoline_address;
 }
 
+/* Is this page available ? If so map it */
+CORE_ADDR
+mmappable(gdbarch *gdbarch, CORE_ADDR addr)
+{
+  const int prot = 7;
+  const int trampoline_size = 0x100;
+  const int page_size = 0x1000;
+  CORE_ADDR mmapped_area = gdbarch_infcall_mmap(gdbarch, addr, trampoline_size, prot);
+  if(mmapped_area + page_size > addr+trampoline_size && mmapped_area <= addr)
+  {
+    return mmapped_area;
+  }
+  else
+  {
+    gdbarch_infcall_munmap(gdbarch,addr,page_size);
+    return (CORE_ADDR) 0;
+  }
+}
+
+
+/* Choose where to put the trampoline */
+CORE_ADDR
+place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
+{
+  const gdb_byte ill_insns[14] = {6, 7, 14, 22, 23, 30, 31, 39, 47, 55, 63, 96, 97, 98};
+  int last_insn_index = 0;
+  for(int i = 0; i<5; i++)
+  {
+    if(lengths[4-i] > 0)
+    {
+      last_insn_index = 4-i;
+      break;
+    }
+  }
+  if(lengths[4] > 0) // insn beginning on 5th byte
+  {
+    int32_t offset = 0;
+    target_read_memory(addr+1,((gdb_byte *)&offset),3);
+    for( int idx = 0; idx< 14; idx++)
+    {
+      memcpy(((gdb_byte *)&offset)+3,&ill_insns[idx],1);
+      CORE_ADDR tp_address = addr+offset+5;
+      // Not unmappable, TODO : make it cleanable
+      if (mmappable(gdbarch,tp_address))
+      {
+        return tp_address;
+      }
+    }
+    error(_("No suitable destination for tp"));
+    
+  }
+
+  error(_("No insn on final byte"));
+  return (CORE_ADDR) 0;
+}
+
+
+/* Analyze the layout */
+CORE_ADDR
+analyse_layout(gdbarch *gdbarch, CORE_ADDR addr)
+{
+  CORE_ADDR current_address = addr;
+  int insn_length;
+  gdb_byte instructions[30];
+  int lengths[5]={0,0,0,0,0};
+  while (current_address < addr +5)
+  {
+    insn_length = gdb_insn_length(gdbarch, current_address);
+    lengths[(int)(current_address - addr)] = insn_length;
+    current_address += insn_length;
+  }
+  target_read_memory(addr, instructions, (int) (current_address - addr));
+
+  return place_trampoline(gdbarch, addr, lengths);
+}
+
+
+CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int size)
+{
+  if(gdb_insn_length(gdbarch,insn_address)>=5)
+  {
+    return allocate_trampoline(gdbarch,size);
+  }
+  
+  return analyse_layout(gdbarch, insn_address);
+}
+
+// CORE_ADDR
+// allocate_trampoline_close (struct gdbarch *gdbarch, int size)
+// {
+//   const int page_size = 0x1000;
+//   static CORE_ADDR trampoline_mmap_address = 0x391000;
+//   static CORE_ADDR trampoline_address = 0;
+//   const unsigned prot
+//       = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
+
+//   /* On inferior exit, reset the static variables. */
+//   if (size < 0)
+//     {
+//       trampoline_address = 0;
+//       trampoline_mmap_address = 0x100000;
+//       return 0;
+//     }
+
+//   gdb_assert (size <= page_size);
+//   if (trampoline_address == 0
+//       || trampoline_address + 2*size > trampoline_mmap_address)
+//     {
+//       /* Allocate a new chunk of memory of one page*/
+//       trampoline_address = gdbarch_infcall_mmap (
+//           gdbarch, trampoline_mmap_address, page_size, prot);
+//       trampoline_mmap_address += page_size;
+//     }
+//   else
+//     {
+//       trampoline_address += size;
+//     }
+//   return trampoline_address;
+// }
+
+
+
+
+
 CORE_ADDR
 build_compile_trampoline (struct gdbarch *gdbarch,
                           struct compile_module *module, Patch *patch,
@@ -222,19 +399,24 @@ build_compile_trampoline (struct gdbarch *gdbarch,
 
   /* Allocate memory for the trampoline in the inferior.  */
   CORE_ADDR trampoline
-      = allocate_trampoline (gdbarch, sizeof (trampoline_instr));
-
+  //     = allocate_trampoline (gdbarch, sizeof (trampoline_instr));
+         = custom_trampoline(gdbarch, insn_addr, sizeof(trampoline_instr));
   /* Copy content of trampoline_instr to inferior memory.  */
   target_write_memory (trampoline, trampoline_instr, trampoline_size);
 
   /* Relocate replaced instruction */
   CORE_ADDR relocation_address = trampoline + trampoline_size;
   CORE_ADDR trampoline_end = relocation_address;
-  gdbarch_relocate_instruction (gdbarch, &trampoline_end, insn_addr);
+  CORE_ADDR current_insn_addr = insn_addr;
+  while(current_insn_addr < insn_addr +5){
+    gdbarch_relocate_instruction (gdbarch, &trampoline_end, insn_addr);
+    current_insn_addr += gdb_insn_length(gdbarch, current_insn_addr);
+  }
+  
 
   /* Leave enough room for any instruction should another one
      be relocated here */
-  trampoline_size += 15;
+  trampoline_size += 30;
   /* Fill the void with nops */
   if (gdb_insn_length (gdbarch, insn_addr) > 5)
     {
@@ -329,14 +511,16 @@ patch_code (const char *location, const char *code)
   /* Compile code.  */
   enum compile_i_scope_types scope = COMPILE_I_SIMPLE_SCOPE;
   compile_file_names fnames = compile_to_object (NULL, code, scope, addr);
-  gdb::unlinker object_remover (fnames.object_file ());
-  gdb::unlinker source_remover (fnames.source_file ());
+  // gdb::unlinker object_remover (fnames.object_file ());
+  // gdb::unlinker source_remover (fnames.source_file ());
   /* Load compiled code into memory.  */
   struct compile_module *compile_module
       = compile_object_load (fnames, scope, NULL);
 
   /* Build a trampoline which calls the compiled code.  */
-  CORE_ADDR return_address = find_return_address (gdbarch, &addr, true);
+  // CORE_ADDR return_address = find_return_address (gdbarch, &addr, true);
+  CORE_ADDR tp_address;
+  CORE_ADDR return_address = find_return_address_amad3(gdbarch, &addr, &tp_address, false);
   if (addr != 0)
     {
       Patch *patch = new Patch (compile_module->munmap_list_head, addr);
@@ -360,10 +544,10 @@ patch_code (const char *location, const char *code)
   /* Free unused memory */
   /* Some memory is left allocated in the inferior because
      we still need to access it to execute the compiled code.  */
-  unlink (compile_module->source_file);
-  xfree (compile_module->source_file);
-  unlink (objfile_name (compile_module->objfile));
-  xfree (compile_module);
+  // unlink (compile_module->source_file);
+  // xfree (compile_module->source_file);
+  // // unlink (objfile_name (compile_module->objfile));
+  // xfree (compile_module);
 }
 
 /* Handle the input from the 'patch code' command.  The
