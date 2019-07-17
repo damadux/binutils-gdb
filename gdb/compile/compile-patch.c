@@ -225,7 +225,7 @@ find_return_address_amad3 (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
    mmap is done one page at a time, 
    a larger trampoline cannot be allocated.  */
 CORE_ADDR
-allocate_trampoline (struct gdbarch *gdbarch, int size)
+allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigill_idx)
 {
   const int page_size = 0x1000;
   static CORE_ADDR trampoline_mmap_address = 0x100000;
@@ -241,19 +241,77 @@ allocate_trampoline (struct gdbarch *gdbarch, int size)
       return 0;
     }
 
-  gdb_assert (size <= page_size);
-  if (trampoline_address == 0
-      || trampoline_address + 2*size > trampoline_mmap_address)
+  int32_t difference = 0;
+  /* Initialize tp address */
+  if (trampoline_address == 0)
     {
-      /* Allocate a new chunk of memory of one page*/
+      /* Allocate a new chunk of memory of one page*/ 
       trampoline_address = gdbarch_infcall_mmap (
           gdbarch, trampoline_mmap_address, page_size, prot);
-      trampoline_mmap_address += page_size;
+      trampoline_mmap_address = trampoline_address;
+    }
+  else
+  {
+    trampoline_address += size;
+  }
+  
+
+  if (sigill_idx != 0 && sigill_idx < 4)
+  {
+    int32_t offset = 0x6<<(8*(sigill_idx - 1));
+    int64_t pre_offset = trampoline_address - addr - 5;
+    if (pre_offset > INT_MAX || pre_offset < INT_MIN)
+    {
+      fprintf_filtered (
+          gdb_stderr,
+          "E.Jump pad too far from instruction for jump back (offset 0x%" PRIx64
+          " > int32). \n",
+          pre_offset);
+      return 0;
+    }
+    int32_t pre_offset32 = (int32_t) pre_offset;
+    // printf("address %lx pre_offset %x \n", trampoline_address, (unsigned int) pre_offset32);
+
+    for(int i = 0; i<4; i++)
+    {
+      if(i+1 != sigill_idx)
+      {
+        memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
+      }
+    }
+    // printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
+
+    difference = offset - pre_offset32;
+    // printf("difference %x \n", difference);
+    if(difference < 0)
+    {
+      difference += 0x1<<(8*sigill_idx);
+      offset += 0x1<<(8*sigill_idx);
+    }
+    // printf("difference %x offset %x \n", (unsigned int) difference, (unsigned int) offset);
+
+    int skip_pages = (difference + trampoline_address - trampoline_mmap_address) / page_size;
+    if(skip_pages > 0)
+    {
+      trampoline_address = 0;
+      trampoline_mmap_address += (skip_pages-1)*page_size;
+    }
+  }
+  if (trampoline_address == 0
+      || trampoline_address + size > trampoline_mmap_address)
+    {
+      /* Allocate a new chunk of memory of one page*/ /* FIXME the position */
+      trampoline_mmap_address+=page_size;
+      trampoline_address = gdbarch_infcall_mmap (
+          gdbarch, trampoline_mmap_address, page_size, prot);
+      trampoline_mmap_address = trampoline_address;
+      trampoline_address += (difference + trampoline_address - trampoline_mmap_address) % page_size;
     }
   else
     {
-      trampoline_address += size;
+      trampoline_address += difference % page_size;
     }
+  // printf("address %lx difference %x \n", trampoline_address, (unsigned int) difference);
   return trampoline_address;
 }
 
@@ -282,7 +340,7 @@ CORE_ADDR
 place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
 {
   const gdb_byte ill_insns[14] = {6, 7, 14, 22, 23, 30, 31, 39, 47, 55, 63, 96, 97, 98};
-  int last_insn_index = 0;
+  int last_insn_index = 0; // between 1 and 4
   for(int i = 0; i<5; i++)
   {
     if(lengths[4-i] > 0)
@@ -306,8 +364,15 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
       }
     }
     error(_("No suitable destination for tp"));
-    
   }
+  else
+  {
+
+    CORE_ADDR tp_address = allocate_trampoline(gdbarch, 0x100, addr, last_insn_index);
+    // printf("tp address %lx offset %lx \n", tp_address, tp_address - addr - 5);
+    return tp_address;
+  }
+  
 
   error(_("No insn on final byte"));
   return (CORE_ADDR) 0;
@@ -338,7 +403,7 @@ CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int
 {
   if(gdb_insn_length(gdbarch,insn_address)>=5)
   {
-    return allocate_trampoline(gdbarch,size);
+    return allocate_trampoline(gdbarch,size, 0, 0);
   }
   
   return analyse_layout(gdbarch, insn_address);
@@ -816,7 +881,7 @@ void
 reset_patch_data (struct inferior *inferior)
 {
   /* Reset the mmap values for trampolines */
-  allocate_trampoline (NULL, -1);
+  allocate_trampoline (NULL, -1, 0, 0);
 
   /* Delete all live patches object */
   auto it = all_patches.patches.begin ();
