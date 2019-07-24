@@ -15,13 +15,14 @@ public:
     CORE_ADDR address;
     /* this is a fix offset to trampoline, it could be resolved statically */
     CORE_ADDR relocated_insn_address;
+    gdb_byte original_insn[5];
 
     Patch(munmap_list *mmp_list, CORE_ADDR addr)
     {
         munmap_list_head = mmp_list;
         address = addr;
     }
-
+    /* FIXME : Load / store does not support storing the original instruction */
     Patch(const char *load_string)
     {
         const char *next;
@@ -37,6 +38,18 @@ public:
     void store(char *store_string)
     {
         sprintf(store_string,"%lu %lu\n",address, relocated_insn_address);
+    }
+
+    void read_original_insn(gdbarch *gdbarch)
+    {
+        // int len = gdb_insn_length(gdbarch, address);
+        // /* We keep all the instructions intersecting the future jump */ 
+        // /* Needed when the original instruction is not 5 bytes long*/
+        // while(len < 5)
+        // {
+        //     len+=gdb_insn_length(gdbarch, address + len);
+        // }
+        target_read_memory(address, original_insn, 5);
     }
 
     ~Patch()

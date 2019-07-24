@@ -815,7 +815,7 @@ continue_1 (int all_threads)
 
 /* continue [-a] [proceed-count] [&]  */
 
-static void
+void
 continue_command (const char *args, int from_tty)
 {
   int async_exec;
@@ -921,7 +921,7 @@ set_step_frame (void)
 
 /* Step until outside of current statement.  */
 
-static void
+void
 step_command (const char *count_string, int from_tty)
 {
   step_1 (0, 0, count_string);
@@ -994,7 +994,7 @@ step_command_fsm_prepare (struct step_command_fsm *sm,
 
 static int prepare_one_step (struct step_command_fsm *sm);
 
-static void
+void
 step_1 (int skip_subroutines, int single_inst, const char *count_string)
 {
   int count;

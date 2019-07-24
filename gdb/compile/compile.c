@@ -428,7 +428,7 @@ get_new_file_names ()
 
 /* Get the block and PC at which to evaluate an expression.  */
 
-static const struct block *
+const struct block *
 get_expr_block_and_pc (CORE_ADDR *pc)
 {
   const struct block *block = get_selected_block (pc);
@@ -1051,6 +1051,16 @@ re attach afterwards."),
 	   &compile_patch_command_list);
 
   add_cmd ("load", class_obscure, compile_patch_load_command,
+	   _("\
+Load patch information from a file.\n\
+\n\
+Usage: patch load [FILENAME] \n\
+\n\
+This is useful when attaching to a process that has previously \n\
+been patched."),
+	   &compile_patch_command_list);
+
+  add_cmd ("handle", class_obscure, patch_sigill_handler,
 	   _("\
 Load patch information from a file.\n\
 \n\

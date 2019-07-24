@@ -57,6 +57,8 @@ extern void compile_patch_store_command(const char *arg, int from_tty);
 
 extern void compile_patch_load_command(const char *arg, int from_tty);
 
+extern void patch_sigill_handler(const char *arg, int from_tty);
+
 /* Resets static data on inferior exit.  */
 
 extern void reset_patch_data (struct inferior *inf);

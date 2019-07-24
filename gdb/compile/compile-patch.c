@@ -279,7 +279,7 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
         memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
       }
     }
-    // printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
+    printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
 
     difference = offset - pre_offset32;
     // printf("difference %x \n", difference);
@@ -300,7 +300,7 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
   if (trampoline_address == 0
       || trampoline_address + size > trampoline_mmap_address)
     {
-      /* Allocate a new chunk of memory of one page*/ /* FIXME the position */
+      /* Allocate a new chunk of memory of one page*/
       trampoline_mmap_address+=page_size;
       trampoline_address = gdbarch_infcall_mmap (
           gdbarch, trampoline_mmap_address, page_size, prot);
@@ -372,7 +372,6 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
     // printf("tp address %lx offset %lx \n", tp_address, tp_address - addr - 5);
     return tp_address;
   }
-  
 
   error(_("No insn on final byte"));
   return (CORE_ADDR) 0;
@@ -409,43 +408,6 @@ CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int
   return analyse_layout(gdbarch, insn_address);
 }
 
-// CORE_ADDR
-// allocate_trampoline_close (struct gdbarch *gdbarch, int size)
-// {
-//   const int page_size = 0x1000;
-//   static CORE_ADDR trampoline_mmap_address = 0x391000;
-//   static CORE_ADDR trampoline_address = 0;
-//   const unsigned prot
-//       = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
-
-//   /* On inferior exit, reset the static variables. */
-//   if (size < 0)
-//     {
-//       trampoline_address = 0;
-//       trampoline_mmap_address = 0x100000;
-//       return 0;
-//     }
-
-//   gdb_assert (size <= page_size);
-//   if (trampoline_address == 0
-//       || trampoline_address + 2*size > trampoline_mmap_address)
-//     {
-//       /* Allocate a new chunk of memory of one page*/
-//       trampoline_address = gdbarch_infcall_mmap (
-//           gdbarch, trampoline_mmap_address, page_size, prot);
-//       trampoline_mmap_address += page_size;
-//     }
-//   else
-//     {
-//       trampoline_address += size;
-//     }
-//   return trampoline_address;
-// }
-
-
-
-
-
 CORE_ADDR
 build_compile_trampoline (struct gdbarch *gdbarch,
                           struct compile_module *module, Patch *patch,
@@ -474,7 +436,7 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   CORE_ADDR trampoline_end = relocation_address;
   CORE_ADDR current_insn_addr = insn_addr;
   while(current_insn_addr < insn_addr +5){
-    gdbarch_relocate_instruction (gdbarch, &trampoline_end, insn_addr);
+    gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr);
     current_insn_addr += gdb_insn_length(gdbarch, current_insn_addr);
   }
   
@@ -589,6 +551,7 @@ patch_code (const char *location, const char *code)
   if (addr != 0)
     {
       Patch *patch = new Patch (compile_module->munmap_list_head, addr);
+      patch->read_original_insn(gdbarch);
 
       CORE_ADDR trampoline_address = build_compile_trampoline (
           gdbarch, compile_module, patch, return_address);
@@ -895,3 +858,40 @@ reset_patch_data (struct inferior *inferior)
   /* Reset the list of patches */
   all_patches = PatchVector ();
 }
+
+extern void
+step_1 (int skip_subroutines, int single_inst, const char *count_string);
+
+void
+step_command (const char *count_string, int from_tty);
+
+void
+patch_sigill_handler(const char *arg, int from_tty)
+{
+  CORE_ADDR sig_addr = get_frame_pc (get_selected_frame (NULL));
+  
+  printf("Address : %lx \n", sig_addr);
+  /* Find which patch causes the problem */
+  auto it = all_patches.patches.begin ();
+  
+  for (; it != all_patches.patches.end (); it++)
+    {
+      if (it->active && it->patch->address<=sig_addr && sig_addr<it->patch->address+5)
+        {
+          int offset = sig_addr - it->patch->address;
+          /* Reposition instruction */
+          gdb_byte buffer[4];
+          target_read_memory(sig_addr,buffer, 4);
+          target_write_memory(sig_addr,it->patch->original_insn + offset,5-offset);
+          printf("Corrected ! %hx \n", it->patch->original_insn[offset]);//,it->patch->original_insn[2],it->patch->original_insn[3],it->patch->original_insn[4] );
+          /* step and rewrite */
+          step_command(NULL,0);
+
+          /* DO STEP */
+          printf("Stepped now rewrite !\n");
+          target_write_memory(sig_addr,buffer,4);
+          break;
+        }
+    }
+    /* RESUME */
+} 

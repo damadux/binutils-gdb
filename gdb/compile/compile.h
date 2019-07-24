@@ -103,6 +103,9 @@ extern void compile_dwarf_bounds_to_c (string_file *stream,
 
 extern void compile_print_value (struct value *val, void *data_voidp);
 
+extern const struct block *
+get_expr_block_and_pc (CORE_ADDR *pc);
+
 /* Command element for the 'compile' command.  */
 extern cmd_list_element *compile_cmd_element;
 
