@@ -21,14 +21,14 @@
 
 #include "frame.h"
 #include "value.h"
-#include "common/vec.h"
+#include "gdbsupport/vec.h"
 #include "ax.h"
 #include "command.h"
-#include "common/break-common.h"
+#include "gdbsupport/break-common.h"
 #include "probe.h"
 #include "location.h"
 #include <vector>
-#include "common/array-view.h"
+#include "gdbsupport/array-view.h"
 #include "cli/cli-script.h"
 
 struct block;
@@ -41,6 +41,16 @@ struct bp_location;
 struct linespec_result;
 struct linespec_sals;
 struct inferior;
+
+/* Enum for exception-handling support in 'catch throw', 'catch rethrow',
+   'catch catch' and the MI equivalent.  */
+
+enum exception_event_kind
+{
+  EX_EVENT_THROW,
+  EX_EVENT_RETHROW,
+  EX_EVENT_CATCH
+};
 
 /* Why are we removing the breakpoint from the target?  */
 
@@ -306,7 +316,12 @@ class bp_location
 public:
   bp_location () = default;
 
-  bp_location (breakpoint *owner);
+  /* Construct a bp_location with the type inferred from OWNER's
+     type.  */
+  explicit bp_location (breakpoint *owner);
+
+  /* Construct a bp_location with type TYPE.  */
+  bp_location (breakpoint *owner, bp_loc_type type);
 
   virtual ~bp_location ();
 
@@ -856,11 +871,17 @@ extern struct breakpoint *breakpoint_find_if
 /* Return true if BPT is either a software breakpoint or a hardware
    breakpoint.  */
 
-extern int is_breakpoint (const struct breakpoint *bpt);
+extern bool is_breakpoint (const struct breakpoint *bpt);
 
-/* Returns true if BPT is really a watchpoint.  */
+/* Return true if BPT is of any watchpoint kind, hardware or
+   software.  */
 
-extern int is_watchpoint (const struct breakpoint *bpt);
+extern bool is_watchpoint (const struct breakpoint *bpt);
+
+/* Return true if BPT is a C++ exception catchpoint (catch
+   catch/throw/rethrow).  */
+
+extern bool is_exception_catchpoint (breakpoint *bp);
 
 /* An instance of this type is used to represent all kinds of
    tracepoints.  */
@@ -1033,7 +1054,7 @@ struct bpstat_what
     /* Used for BPSTAT_WHAT_SET_LONGJMP_RESUME and
        BPSTAT_WHAT_CLEAR_LONGJMP_RESUME.  True if we are handling a
        longjmp, false if we are handling an exception.  */
-    int is_longjmp;
+    bool is_longjmp;
   };
 
 /* Tell what to do about this bpstat.  */
@@ -1046,18 +1067,18 @@ extern void bpstat_run_callbacks (bpstat bs_head);
 /* Find the bpstat associated with a breakpoint.  NULL otherwise.  */
 bpstat bpstat_find_breakpoint (bpstat, struct breakpoint *);
 
-/* Nonzero if a signal that we got in target_wait() was due to
+/* True if a signal that we got in target_wait() was due to
    circumstances explained by the bpstat; the signal is therefore not
    random.  */
-extern int bpstat_explains_signal (bpstat, enum gdb_signal);
+extern bool bpstat_explains_signal (bpstat, enum gdb_signal);
 
-/* Nonzero is this bpstat causes a stop.  */
-extern int bpstat_causes_stop (bpstat);
+/* True if this bpstat causes a stop.  */
+extern bool bpstat_causes_stop (bpstat);
 
-/* Nonzero if we should step constantly (e.g. watchpoints on machines
+/* True if we should step constantly (e.g. watchpoints on machines
    without hardware support).  This isn't related to a specific bpstat,
    just to things like whether watchpoints are set.  */
-extern int bpstat_should_step (void);
+extern bool bpstat_should_step ();
 
 /* Print a message indicating what happened.  Returns nonzero to
    say that only the source line should be printed after this (zero
@@ -1385,7 +1406,9 @@ extern void insert_breakpoints (void);
 
 extern int remove_breakpoints (void);
 
-extern int remove_breakpoints_inf (inferior *inf);
+/* Remove breakpoints of inferior INF.  */
+
+extern void remove_breakpoints_inf (inferior *inf);
 
 /* This function can be used to update the breakpoint package's state
    after an exec() system call has been executed.
@@ -1537,8 +1560,9 @@ extern void remove_solib_event_breakpoints_at_next_stop (void);
 
 extern void disable_breakpoints_in_shlibs (void);
 
-/* This function returns TRUE if ep is a catchpoint.  */
-extern int is_catchpoint (struct breakpoint *);
+/* This function returns true if B is a catchpoint.  */
+
+extern bool is_catchpoint (struct breakpoint *b);
 
 /* Shared helper function (MI and CLI) for creating and installing
    a shared object event catchpoint.  */
@@ -1617,7 +1641,9 @@ extern struct tracepoint *
 /* Return a vector of all tracepoints currently defined.  */
 extern std::vector<breakpoint *> all_tracepoints (void);
 
-extern int is_tracepoint (const struct breakpoint *b);
+/* Return true if B is of tracepoint kind.  */
+
+extern bool is_tracepoint (const struct breakpoint *b);
 
 /* Return a vector of all static tracepoints defined at ADDR.  */
 extern std::vector<breakpoint *> static_tracepoints_here (CORE_ADDR addr);
@@ -1674,5 +1700,20 @@ extern void print_breakpoint (breakpoint *bp);
 
 /* Command element for the 'commands' command.  */
 extern cmd_list_element *commands_cmd_element;
+
+/* Whether to use the fixed output when printing information about a
+   multi-location breakpoint (see PR 9659).  */
+
+extern bool fix_multi_location_breakpoint_output_globally;
+
+/* Deal with "catch catch", "catch throw", and "catch rethrow" commands and
+   the MI equivalents.  Sets up to catch events of type EX_EVENT.  When
+   TEMPFLAG is true only the next matching event is caught after which the
+   catch-point is deleted.  If REGEX is not NULL then only exceptions whose
+   type name matches REGEX will trigger the event.  */
+
+extern void catch_exception_event (enum exception_event_kind ex_event,
+				   const char *regex, bool tempflag,
+				   int from_tty);
 
 #endif /* !defined (BREAKPOINT_H) */

@@ -49,9 +49,9 @@
 #include "valprint.h"
 #include "source.h"
 #include "observable.h"
-#include "common/vec.h"
+#include "gdbsupport/vec.h"
 #include "stack.h"
-#include "common/gdb_vecs.h"
+#include "gdbsupport/gdb_vecs.h"
 #include "typeprint.h"
 #include "namespace.h"
 
@@ -60,8 +60,8 @@
 #include "mi/mi-common.h"
 #include "arch-utils.h"
 #include "cli/cli-utils.h"
-#include "common/function-view.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/function-view.h"
+#include "gdbsupport/byte-vector.h"
 #include <algorithm>
 #include <map>
 
@@ -145,14 +145,6 @@ static int integer_type_p (struct type *);
 static int scalar_type_p (struct type *);
 
 static int discrete_type_p (struct type *);
-
-static enum ada_renaming_category parse_old_style_renaming (struct type *,
-							    const char **,
-							    int *,
-							    const char **);
-
-static struct symbol *find_old_style_renaming_symbol (const char *,
-						      const struct block *);
 
 static struct type *ada_lookup_struct_elt_type (struct type *, const char *,
                                                 int, int);
@@ -378,27 +370,16 @@ struct ada_inferior_data
      tagged types.  With older versions of GNAT, this type was directly
      accessible through a component ("tsd") in the object tag.  But this
      is no longer the case, so we cache it for each inferior.  */
-  struct type *tsd_type;
+  struct type *tsd_type = nullptr;
 
   /* The exception_support_info data.  This data is used to determine
      how to implement support for Ada exception catchpoints in a given
      inferior.  */
-  const struct exception_support_info *exception_info;
+  const struct exception_support_info *exception_info = nullptr;
 };
 
 /* Our key to this module's inferior data.  */
-static const struct inferior_data *ada_inferior_data;
-
-/* A cleanup routine for our inferior data.  */
-static void
-ada_inferior_data_cleanup (struct inferior *inf, void *arg)
-{
-  struct ada_inferior_data *data;
-
-  data = (struct ada_inferior_data *) inferior_data (inf, ada_inferior_data);
-  if (data != NULL)
-    xfree (data);
-}
+static const struct inferior_key<ada_inferior_data> ada_inferior_data;
 
 /* Return our inferior data for the given inferior (INF).
 
@@ -413,12 +394,9 @@ get_ada_inferior_data (struct inferior *inf)
 {
   struct ada_inferior_data *data;
 
-  data = (struct ada_inferior_data *) inferior_data (inf, ada_inferior_data);
+  data = ada_inferior_data.get (inf);
   if (data == NULL)
-    {
-      data = XCNEW (struct ada_inferior_data);
-      set_inferior_data (inf, ada_inferior_data, data);
-    }
+    data = ada_inferior_data.emplace (inf);
 
   return data;
 }
@@ -429,8 +407,7 @@ get_ada_inferior_data (struct inferior *inf)
 static void
 ada_inferior_exit (struct inferior *inf)
 {
-  ada_inferior_data_cleanup (inf, NULL);
-  set_inferior_data (inf, ada_inferior_data, NULL);
+  ada_inferior_data.clear (inf);
 }
 
 
@@ -439,12 +416,18 @@ ada_inferior_exit (struct inferior *inf)
 /* This module's per-program-space data.  */
 struct ada_pspace_data
 {
+  ~ada_pspace_data ()
+  {
+    if (sym_cache != NULL)
+      ada_free_symbol_cache (sym_cache);
+  }
+
   /* The Ada symbol cache.  */
-  struct ada_symbol_cache *sym_cache;
+  struct ada_symbol_cache *sym_cache = nullptr;
 };
 
 /* Key to our per-program-space data.  */
-static const struct program_space_data *ada_pspace_data_handle;
+static const struct program_space_key<ada_pspace_data> ada_pspace_data_handle;
 
 /* Return this module's data for the given program space (PSPACE).
    If not is found, add a zero'ed one now.
@@ -456,27 +439,11 @@ get_ada_pspace_data (struct program_space *pspace)
 {
   struct ada_pspace_data *data;
 
-  data = ((struct ada_pspace_data *)
-	  program_space_data (pspace, ada_pspace_data_handle));
+  data = ada_pspace_data_handle.get (pspace);
   if (data == NULL)
-    {
-      data = XCNEW (struct ada_pspace_data);
-      set_program_space_data (pspace, ada_pspace_data_handle, data);
-    }
+    data = ada_pspace_data_handle.emplace (pspace);
 
   return data;
-}
-
-/* The cleanup callback for this module's per-program-space data.  */
-
-static void
-ada_pspace_data_cleanup (struct program_space *pspace, void *data)
-{
-  struct ada_pspace_data *pspace_data = (struct ada_pspace_data *) data;
-
-  if (pspace_data->sym_cache != NULL)
-    ada_free_symbol_cache (pspace_data->sym_cache);
-  xfree (pspace_data);
 }
 
                         /* Utilities */
@@ -697,7 +664,8 @@ coerce_unspec_val_to_type (struct value *val, struct type *type)
       set_value_component_location (result, val);
       set_value_bitsize (result, value_bitsize (val));
       set_value_bitpos (result, value_bitpos (val));
-      set_value_address (result, value_address (val));
+      if (VALUE_LVAL (result) == lval_memory)
+	set_value_address (result, value_address (val));
       return result;
     }
 }
@@ -904,8 +872,7 @@ ada_get_decoded_type (struct type *type)
 enum language
 ada_update_initial_language (enum language lang)
 {
-  if (lookup_minimal_symbol ("adainit", (const char *) NULL,
-                             (struct objfile *) NULL).minsym != NULL)
+  if (lookup_minimal_symbol ("adainit", NULL, NULL).minsym != NULL)
     return language_ada;
 
   return lang;
@@ -1134,26 +1101,6 @@ ada_remove_po_subprogram_suffix (const char *encoded, int *len)
       && encoded[*len - 1] == 'N'
       && (isdigit (encoded[*len - 2]) || islower (encoded[*len - 2])))
     *len = *len - 1;
-}
-
-/* Remove trailing X[bn]* suffixes (indicating names in package bodies).  */
-
-static void
-ada_remove_Xbn_suffix (const char *encoded, int *len)
-{
-  int i = *len - 1;
-
-  while (i > 0 && (encoded[i] == 'b' || encoded[i] == 'n'))
-    i--;
-
-  if (encoded[i] != 'X')
-    return;
-
-  if (i == 0)
-    return;
-
-  if (isalnum (encoded[i-1]))
-    *len = i;
 }
 
 /* If ENCODED follows the GNAT entity encoding conventions, then return
@@ -4325,9 +4272,6 @@ ada_parse_renaming (struct symbol *sym,
     {
     default:
       return ADA_NOT_RENAMING;
-    case LOC_TYPEDEF:
-      return parse_old_style_renaming (SYMBOL_TYPE (sym), 
-				       renamed_entity, len, renaming_expr);
     case LOC_LOCAL:
     case LOC_STATIC:
     case LOC_COMPUTED:
@@ -4368,65 +4312,6 @@ ada_parse_renaming (struct symbol *sym,
   suffix += 5;
   if (renaming_expr != NULL)
     *renaming_expr = suffix;
-  return kind;
-}
-
-/* Assuming TYPE encodes a renaming according to the old encoding in
-   exp_dbug.ads, returns details of that renaming in *RENAMED_ENTITY,
-   *LEN, and *RENAMING_EXPR, as for ada_parse_renaming, above.  Returns
-   ADA_NOT_RENAMING otherwise.  */
-static enum ada_renaming_category
-parse_old_style_renaming (struct type *type,
-			  const char **renamed_entity, int *len, 
-			  const char **renaming_expr)
-{
-  enum ada_renaming_category kind;
-  const char *name;
-  const char *info;
-  const char *suffix;
-
-  if (type == NULL || TYPE_CODE (type) != TYPE_CODE_ENUM 
-      || TYPE_NFIELDS (type) != 1)
-    return ADA_NOT_RENAMING;
-
-  name = TYPE_NAME (type);
-  if (name == NULL)
-    return ADA_NOT_RENAMING;
-  
-  name = strstr (name, "___XR");
-  if (name == NULL)
-    return ADA_NOT_RENAMING;
-  switch (name[5])
-    {
-    case '\0':
-    case '_':
-      kind = ADA_OBJECT_RENAMING;
-      break;
-    case 'E':
-      kind = ADA_EXCEPTION_RENAMING;
-      break;
-    case 'P':
-      kind = ADA_PACKAGE_RENAMING;
-      break;
-    case 'S':
-      kind = ADA_SUBPROGRAM_RENAMING;
-      break;
-    default:
-      return ADA_NOT_RENAMING;
-    }
-
-  info = TYPE_FIELD_NAME (type, 0);
-  if (info == NULL)
-    return ADA_NOT_RENAMING;
-  if (renamed_entity != NULL)
-    *renamed_entity = info;
-  suffix = strstr (info, "___XE");
-  if (renaming_expr != NULL)
-    *renaming_expr = suffix + 5;
-  if (suffix == NULL || suffix == info)
-    return ADA_NOT_RENAMING;
-  if (len != NULL)
-    *len = suffix - info;
   return kind;
 }
 
@@ -5893,22 +5778,18 @@ ada_lookup_encoded_symbol (const char *name, const struct block *block,
   std::string verbatim = std::string ("<") + name + '>';
 
   gdb_assert (info != NULL);
-  *info = ada_lookup_symbol (verbatim.c_str (), block, domain, NULL);
+  *info = ada_lookup_symbol (verbatim.c_str (), block, domain);
 }
 
 /* Return a symbol in DOMAIN matching NAME, in BLOCK0 and enclosing
    scope and in global scopes, or NULL if none.  NAME is folded and
    encoded first.  Otherwise, the result is as for ada_lookup_symbol_list,
-   choosing the first symbol if there are multiple choices.
-   If IS_A_FIELD_OF_THIS is not NULL, it is set to zero.  */
+   choosing the first symbol if there are multiple choices.  */
 
 struct block_symbol
 ada_lookup_symbol (const char *name, const struct block *block0,
-                   domain_enum domain, int *is_a_field_of_this)
+                   domain_enum domain)
 {
-  if (is_a_field_of_this != NULL)
-    *is_a_field_of_this = 0;
-
   std::vector<struct block_symbol> candidates;
   int n_candidates;
 
@@ -5930,7 +5811,7 @@ ada_lookup_symbol_nonlocal (const struct language_defn *langdef,
 {
   struct block_symbol sym;
 
-  sym = ada_lookup_symbol (name, block_static_block (block), domain, NULL);
+  sym = ada_lookup_symbol (name, block_static_block (block), domain);
   if (sym.symbol != NULL)
     return sym;
 
@@ -8010,80 +7891,11 @@ ada_find_any_type (const char *name)
    symbols whose name is that of NAME_SYM suffixed with  "___XR".
    Return symbol if found, and NULL otherwise.  */
 
-struct symbol *
-ada_find_renaming_symbol (struct symbol *name_sym, const struct block *block)
+static bool
+ada_is_renaming_symbol (struct symbol *name_sym)
 {
   const char *name = SYMBOL_LINKAGE_NAME (name_sym);
-  struct symbol *sym;
-
-  if (strstr (name, "___XR") != NULL)
-     return name_sym;
-
-  sym = find_old_style_renaming_symbol (name, block);
-
-  if (sym != NULL)
-    return sym;
-
-  /* Not right yet.  FIXME pnh 7/20/2007.  */
-  sym = ada_find_any_type_symbol (name);
-  if (sym != NULL && strstr (SYMBOL_LINKAGE_NAME (sym), "___XR") != NULL)
-    return sym;
-  else
-    return NULL;
-}
-
-static struct symbol *
-find_old_style_renaming_symbol (const char *name, const struct block *block)
-{
-  const struct symbol *function_sym = block_linkage_function (block);
-  char *rename;
-
-  if (function_sym != NULL)
-    {
-      /* If the symbol is defined inside a function, NAME is not fully
-         qualified.  This means we need to prepend the function name
-         as well as adding the ``___XR'' suffix to build the name of
-         the associated renaming symbol.  */
-      const char *function_name = SYMBOL_LINKAGE_NAME (function_sym);
-      /* Function names sometimes contain suffixes used
-         for instance to qualify nested subprograms.  When building
-         the XR type name, we need to make sure that this suffix is
-         not included.  So do not include any suffix in the function
-         name length below.  */
-      int function_name_len = ada_name_prefix_len (function_name);
-      const int rename_len = function_name_len + 2      /*  "__" */
-        + strlen (name) + 6 /* "___XR\0" */ ;
-
-      /* Strip the suffix if necessary.  */
-      ada_remove_trailing_digits (function_name, &function_name_len);
-      ada_remove_po_subprogram_suffix (function_name, &function_name_len);
-      ada_remove_Xbn_suffix (function_name, &function_name_len);
-
-      /* Library-level functions are a special case, as GNAT adds
-         a ``_ada_'' prefix to the function name to avoid namespace
-         pollution.  However, the renaming symbols themselves do not
-         have this prefix, so we need to skip this prefix if present.  */
-      if (function_name_len > 5 /* "_ada_" */
-          && strstr (function_name, "_ada_") == function_name)
-        {
-	  function_name += 5;
-	  function_name_len -= 5;
-        }
-
-      rename = (char *) alloca (rename_len * sizeof (char));
-      strncpy (rename, function_name, function_name_len);
-      xsnprintf (rename + function_name_len, rename_len - function_name_len,
-		 "__%s___XR", name);
-    }
-  else
-    {
-      const int rename_len = strlen (name) + 6;
-
-      rename = (char *) alloca (rename_len * sizeof (char));
-      xsnprintf (rename, rename_len * sizeof (char), "%s___XR", name);
-    }
-
-  return ada_find_any_type_symbol (rename);
+  return strstr (name, "___XR") != NULL;
 }
 
 /* Because of GNAT encoding conventions, several GDB symbols may match a
@@ -10669,7 +10481,11 @@ ada_evaluate_subexp (struct type *expect_type, struct expression *exp,
       arg2 = evaluate_subexp (type, exp, pos, noside);
       if (noside == EVAL_SKIP || noside == EVAL_AVOID_SIDE_EFFECTS)
         return arg1;
-      if (ada_is_fixed_point_type (value_type (arg1)))
+      if (VALUE_LVAL (arg1) == lval_internalvar)
+	{
+	  /* Nothing.  */
+	}
+      else if (ada_is_fixed_point_type (value_type (arg1)))
         arg2 = cast_to_fixed (value_type (arg1), arg2);
       else if (ada_is_fixed_point_type (value_type (arg2)))
         error
@@ -11235,8 +11051,34 @@ ada_evaluate_subexp (struct type *expect_type, struct expression *exp,
 
         if (noside == EVAL_SKIP)
           goto nosideret;
+	else if (noside == EVAL_AVOID_SIDE_EFFECTS)
+	  {
+	    if (type_arg == NULL)
+	      type_arg = value_type (arg1);
 
-        if (type_arg == NULL)
+            if (ada_is_constrained_packed_array_type (type_arg))
+	      type_arg = decode_constrained_packed_array_type (type_arg);
+
+	    if (!discrete_type_p (type_arg))
+	      {
+		switch (op)
+		  {
+		  default:          /* Should never happen.  */
+		    error (_("unexpected attribute encountered"));
+		  case OP_ATR_FIRST:
+		  case OP_ATR_LAST:
+		    type_arg = ada_index_type (type_arg, tem,
+					       ada_attribute_name (op));
+		    break;
+		  case OP_ATR_LENGTH:
+		    type_arg = builtin_type (exp->gdbarch)->builtin_int;
+		    break;
+		  }
+	      }
+
+	    return value_zero (type_arg, not_lval);
+	  }
+        else if (type_arg == NULL)
           {
             arg1 = ada_coerce_ref (arg1);
 
@@ -11252,9 +11094,6 @@ ada_evaluate_subexp (struct type *expect_type, struct expression *exp,
 		if (type == NULL)
 		  type = builtin_type (exp->gdbarch)->builtin_int;
 	      }
-
-            if (noside == EVAL_AVOID_SIDE_EFFECTS)
-              return allocate_value (type);
 
             switch (op)
               {
@@ -11312,9 +11151,6 @@ ada_evaluate_subexp (struct type *expect_type, struct expression *exp,
 		if (type == NULL)
 		  type = builtin_type (exp->gdbarch)->builtin_int;
 	      }
-
-            if (noside == EVAL_AVOID_SIDE_EFFECTS)
-              return allocate_value (type);
 
             switch (op)
               {
@@ -12447,7 +12283,7 @@ class ada_catchpoint_location : public bp_location
 {
 public:
   ada_catchpoint_location (breakpoint *owner)
-    : bp_location (owner)
+    : bp_location (owner, bp_loc_software_breakpoint)
   {}
 
   /* The condition that checks whether the exception that was raised
@@ -12629,7 +12465,7 @@ print_it_exception (enum ada_exception_catchpoint_kind ex, bpstat bs)
 
   uiout->text (b->disposition == disp_del
 	       ? "\nTemporary catchpoint " : "\nCatchpoint ");
-  uiout->field_int ("bkptno", b->number);
+  uiout->field_signed ("bkptno", b->number);
   uiout->text (", ");
 
   /* ada_exception_name_addr relies on the selected frame being the
@@ -12710,14 +12546,11 @@ print_one_exception (enum ada_exception_catchpoint_kind ex,
   struct value_print_options opts;
 
   get_user_print_options (&opts);
+
   if (opts.addressprint)
-    {
-      annotate_field (4);
-      uiout->field_core_addr ("addr", b->loc->gdbarch, b->loc->address);
-    }
+    uiout->field_skip ("addr");
 
   annotate_field (5);
-  *last_loc = b->loc;
   switch (ex)
     {
       case ada_catch_exception:
@@ -12770,7 +12603,7 @@ print_mention_exception (enum ada_exception_catchpoint_kind ex,
 
   uiout->text (b->disposition == disp_del ? _("Temporary catchpoint ")
                                                  : _("Catchpoint "));
-  uiout->field_int ("bkptno", b->number);
+  uiout->field_signed ("bkptno", b->number);
   uiout->text (": ");
 
   switch (ex)
@@ -13034,6 +12867,17 @@ print_recreate_catch_handlers (struct breakpoint *b,
 }
 
 static struct breakpoint_ops catch_handlers_breakpoint_ops;
+
+/* See ada-lang.h.  */
+
+bool
+is_ada_exception_catchpoint (breakpoint *bp)
+{
+  return (bp->ops == &catch_exception_breakpoint_ops
+	  || bp->ops == &catch_exception_unhandled_breakpoint_ops
+	  || bp->ops == &catch_assert_breakpoint_ops
+	  || bp->ops == &catch_handlers_breakpoint_ops);
+}
 
 /* Split the arguments specified in a "catch exception" command.  
    Set EX to the appropriate catchpoint type.
@@ -13365,6 +13209,21 @@ catch_ada_handlers_command (const char *arg_entry, int from_tty,
 				   excep_string, cond_string,
 				   tempflag, 1 /* enabled */,
 				   from_tty);
+}
+
+/* Completion function for the Ada "catch" commands.  */
+
+static void
+catch_ada_completer (struct cmd_list_element *cmd, completion_tracker &tracker,
+		     const char *text, const char *word)
+{
+  std::vector<ada_exc_info> exceptions = ada_exceptions_list (NULL);
+
+  for (const ada_exc_info &info : exceptions)
+    {
+      if (startswith (info.name, word))
+	tracker.add_completion (make_unique_xstrdup (info.name));
+    }
 }
 
 /* Split the arguments specified in a "catch assert" command.
@@ -14383,17 +14242,14 @@ static struct value *
 ada_read_var_value (struct symbol *var, const struct block *var_block,
 		    struct frame_info *frame)
 {
-  const struct block *frame_block = NULL;
-  struct symbol *renaming_sym = NULL;
-
   /* The only case where default_read_var_value is not sufficient
      is when VAR is a renaming...  */
-  if (frame)
-    frame_block = get_frame_block (frame, NULL);
-  if (frame_block)
-    renaming_sym = ada_find_renaming_symbol (var, frame_block);
-  if (renaming_sym != NULL)
-    return ada_read_renaming_var_value (renaming_sym, frame_block);
+  if (frame != nullptr)
+    {
+      const struct block *frame_block = get_frame_block (frame, NULL);
+      if (frame_block != nullptr && ada_is_renaming_symbol (var))
+	return ada_read_renaming_var_value (var, frame_block);
+    }
 
   /* This is a typical case where we expect the default_read_var_value
      function to work.  */
@@ -14578,29 +14434,36 @@ overloads selection menu is activated"),
 
   add_catch_command ("exception", _("\
 Catch Ada exceptions, when raised.\n\
-Usage: catch exception [ ARG ]\n\
-\n\
+Usage: catch exception [ARG] [if CONDITION]\n\
 Without any argument, stop when any Ada exception is raised.\n\
 If ARG is \"unhandled\" (without the quotes), only stop when the exception\n\
 being raised does not have a handler (and will therefore lead to the task's\n\
 termination).\n\
 Otherwise, the catchpoint only stops when the name of the exception being\n\
-raised is the same as ARG."),
+raised is the same as ARG.\n\
+CONDITION is a boolean expression that is evaluated to see whether the\n\
+exception should cause a stop."),
 		     catch_ada_exception_command,
-                     NULL,
+		     catch_ada_completer,
 		     CATCH_PERMANENT,
 		     CATCH_TEMPORARY);
 
   add_catch_command ("handlers", _("\
 Catch Ada exceptions, when handled.\n\
-With an argument, catch only exceptions with the given name."),
+Usage: catch handlers [ARG] [if CONDITION]\n\
+Without any argument, stop when any Ada exception is handled.\n\
+With an argument, catch only exceptions with the given name.\n\
+CONDITION is a boolean expression that is evaluated to see whether the\n\
+exception should cause a stop."),
 		     catch_ada_handlers_command,
-                     NULL,
+                     catch_ada_completer,
 		     CATCH_PERMANENT,
 		     CATCH_TEMPORARY);
   add_catch_command ("assert", _("\
 Catch failed Ada assertions, when raised.\n\
-With an argument, catch only exceptions with the given name."),
+Usage: catch assert [if CONDITION]\n\
+CONDITION is a boolean expression that is evaluated to see whether the\n\
+exception should cause a stop."),
 		     catch_assert_command,
                      NULL,
 		     CATCH_PERMANENT,
@@ -14618,6 +14481,7 @@ and exceeds this limit will cause an error."),
   add_info ("exceptions", info_exceptions_command,
 	    _("\
 List all Ada exception names.\n\
+Usage: info exceptions [REGEXP]\n\
 If a regular expression is passed as an argument, only those matching\n\
 the regular expression are listed."));
 
@@ -14648,10 +14512,4 @@ DWARF attribute."),
   gdb::observers::new_objfile.attach (ada_new_objfile_observer);
   gdb::observers::free_objfile.attach (ada_free_objfile_observer);
   gdb::observers::inferior_exit.attach (ada_inferior_exit);
-
-  /* Setup various context-specific data.  */
-  ada_inferior_data
-    = register_inferior_data_with_cleanup (NULL, ada_inferior_data_cleanup);
-  ada_pspace_data_handle
-    = register_program_space_data_with_cleanup (NULL, ada_pspace_data_cleanup);
 }

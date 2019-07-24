@@ -19,11 +19,11 @@
 
 
 #include "defs.h"
-#include "common/preprocessor.h"
+#include "gdbsupport/preprocessor.h"
 #include "gdbtypes.h"
 #include "compile-internal.h"
 #include "compile-cplus.h"
-#include "common/gdb_assert.h"
+#include "gdbsupport/gdb_assert.h"
 #include "symtab.h"
 #include "source.h"
 #include "cp-support.h"
@@ -65,7 +65,7 @@ compile_cplus_instance::decl_name (const char *natural)
   if (name != nullptr)
     return name;
 
-  return gdb::unique_xmalloc_ptr<char> (xstrdup (natural));
+  return make_unique_xstrdup (natural);
 }
 
 /* Get the access flag for the NUM'th field of TYPE.  */

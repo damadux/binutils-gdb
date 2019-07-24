@@ -45,19 +45,6 @@ AX_CXX_COMPILE_STDCXX(11, , mandatory)
 ZW_CREATE_DEPDIR
 ZW_PROG_COMPILER_DEPENDENCIES([CC])
 
-gnulib_extra_configure_args=
-# If large-file support is disabled, make sure gnulib does the same.
-if test "$enable_largefile" = no; then
-gnulib_extra_configure_args="$gnulib_extra_configure_args --disable-largefile"
-fi
-
-# Configure gnulib.  We need to build gnulib under some other
-# directory not "gnulib", to avoid the problem of both GDB and
-# GDBserver wanting to build it in the same directory, when building
-# in the source dir.
-ACX_CONFIGURE_DIR(["gnulib"], ["build-gnulib"],
-                  ["$gnulib_extra_configure_args"])
-
 dnl List of object files and targets accumulated by configure.
 
 CONFIG_OBS=
@@ -82,15 +69,6 @@ if test x"$USE_NLS" = xyes; then
    CONFIG_INSTALL="$CONFIG_INSTALL install-po"
    CONFIG_UNINSTALL="$CONFIG_UNINSTALL uninstall-po"
 fi
-
-GNULIB=build-gnulib/import
-
-# For Makefile dependencies.
-GNULIB_STDINT_H=
-if test x"$STDINT_H" != x; then
-  GNULIB_STDINT_H=$GNULIB/$STDINT_H
-fi
-AC_SUBST(GNULIB_STDINT_H)
 
 PACKAGE=gdb
 AC_DEFINE_UNQUOTED(PACKAGE, "$PACKAGE", [Name of this package. ])
@@ -200,7 +178,7 @@ fi
 . $srcdir/configure.host
 
 # Add in the common host objects.
-. $srcdir/common/common.host
+. $srcdir/gdbsupport/common.host
 gdb_host_obs="$gdb_host_obs $common_host_obs"
 
 # Accumulate some settings from configure.tgt over all enabled targets
@@ -2278,8 +2256,8 @@ AC_DEFINE(GDB_DEFAULT_HOST_CHARSET, "UTF-8",
           [Define to be a string naming the default host character set.])
 
 GDB_AC_SELFTEST([
-  CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_UNITTESTS_OBS) common/selftest.o selftest-arch.o"
-  CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_UNITTESTS_SRCS) common/selftest.c selftest-arch.c"
+  CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_UNITTESTS_OBS) gdbsupport/selftest.o selftest-arch.o"
+  CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_UNITTESTS_SRCS) gdbsupport/selftest.c selftest-arch.c"
 ])
 
 GDB_AC_TRANSFORM([gdb], [GDB_TRANSFORM_NAME])

@@ -29,7 +29,7 @@
 #include "source.h"
 #include "safe-ctype.h"
 #include <algorithm>
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 #include "valprint.h"
 
 /* Disassemble functions.
@@ -209,7 +209,7 @@ gdb_pretty_print_disassembler::pretty_print_insn (struct ui_out *uiout,
 
     if (insn->number != 0)
       {
-	uiout->field_fmt ("insn-number", "%u", insn->number);
+	uiout->field_unsigned ("insn-number", insn->number);
 	uiout->text ("\t");
       }
 
@@ -247,7 +247,7 @@ gdb_pretty_print_disassembler::pretty_print_insn (struct ui_out *uiout,
 	  uiout->field_string ("func-name", name.c_str (),
 			       ui_out_style_kind::FUNCTION);
 	uiout->text ("+");
-	uiout->field_int ("offset", offset);
+	uiout->field_signed ("offset", offset);
 	uiout->text (">:\t");
       }
     else
@@ -943,7 +943,7 @@ set_disassembler_options (char *prospective_options)
   valid_options_and_args = gdbarch_valid_disassembler_options (gdbarch);
   if (valid_options_and_args == NULL)
     {
-      fprintf_filtered (gdb_stdlog, _("\
+      fprintf_filtered (gdb_stderr, _("\
 'set disassembler-options ...' is not supported on this architecture.\n"));
       return;
     }
@@ -979,7 +979,7 @@ set_disassembler_options (char *prospective_options)
 	  break;
       if (valid_options->name[i] == NULL)
 	{
-	  fprintf_filtered (gdb_stdlog,
+	  fprintf_filtered (gdb_stderr,
 			    _("Invalid disassembler option value: '%s'.\n"),
 			    opt);
 	  return;
@@ -1136,7 +1136,7 @@ _initialize_disasm (void)
 					 &prospective_options, _("\
 Set the disassembler options.\n\
 Usage: set disassembler-options OPTION [,OPTION]...\n\n\
-See: 'show disassembler-options' for valid option values.\n"), _("\
+See: 'show disassembler-options' for valid option values."), _("\
 Show the disassembler options."), NULL,
 					 set_disassembler_options_sfunc,
 					 show_disassembler_options_sfunc,

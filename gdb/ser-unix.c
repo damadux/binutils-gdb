@@ -26,12 +26,13 @@
 #include <sys/types.h>
 #include "terminal.h"
 #include <sys/socket.h>
-#include "common/gdb_sys_time.h"
+#include "gdbsupport/gdb_sys_time.h"
 
 #include "gdb_select.h"
 #include "gdbcmd.h"
-#include "common/filestuff.h"
+#include "gdbsupport/filestuff.h"
 #include <termios.h>
+#include "inflow.h"
 
 struct hardwire_ttystate
   {
@@ -164,6 +165,9 @@ hardwire_print_tty_state (struct serial *scb,
 static int
 hardwire_drain_output (struct serial *scb)
 {
+  /* Ignore SIGTTOU which may occur during the drain.  */
+  scoped_ignore_sigttou ignore_sigttou;
+
   return tcdrain (scb->fd);
 }
 

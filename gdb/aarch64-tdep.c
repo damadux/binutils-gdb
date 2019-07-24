@@ -44,7 +44,7 @@
 #include "infcall.h"
 #include "ax.h"
 #include "ax-gdb.h"
-#include "common/selftest.h"
+#include "gdbsupport/selftest.h"
 
 #include "aarch64-tdep.h"
 #include "aarch64-ravenscar-thread.h"
@@ -52,11 +52,12 @@
 #include "elf-bfd.h"
 #include "elf/aarch64.h"
 
-#include "common/vec.h"
+#include "gdbsupport/vec.h"
 
 #include "record.h"
 #include "record-full.h"
 #include "arch/aarch64-insn.h"
+#include "gdbarch.h"
 
 #include "opcode/aarch64.h"
 #include <algorithm>
@@ -1180,8 +1181,12 @@ aarch64_execute_dwarf_cfa_vendor_op (struct gdbarch *gdbarch, gdb_byte op,
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   struct dwarf2_frame_state_reg *ra_state;
 
-  if (tdep->has_pauth () && op == DW_CFA_AARCH64_negate_ra_state)
+  if (op == DW_CFA_AARCH64_negate_ra_state)
     {
+      /* On systems without pauth, treat as a nop.  */
+      if (!tdep->has_pauth ())
+	return true;
+
       /* Allocate RA_STATE column if it's not allocated yet.  */
       fs->regs.alloc_regs (AARCH64_DWARF_PAUTH_RA_STATE + 1);
 
@@ -1885,6 +1890,9 @@ aarch64_vnh_type (struct gdbarch *gdbarch)
       t = arch_composite_type (gdbarch, "__gdb_builtin_type_vnh",
 			       TYPE_CODE_UNION);
 
+      elem = builtin_type (gdbarch)->builtin_half;
+      append_composite_type_field (t, "f", elem);
+
       elem = builtin_type (gdbarch)->builtin_uint16;
       append_composite_type_field (t, "u", elem);
 
@@ -1963,6 +1971,8 @@ aarch64_vnv_type (struct gdbarch *gdbarch)
 
       sub = arch_composite_type (gdbarch, "__gdb_builtin_type_vnh",
 				 TYPE_CODE_UNION);
+      append_composite_type_field (sub, "f",
+				   init_vector_type (bt->builtin_half, 8));
       append_composite_type_field (sub, "u",
 				   init_vector_type (bt->builtin_uint16, 8));
       append_composite_type_field (sub, "s",
@@ -2747,7 +2757,7 @@ struct aarch64_displaced_step_data
   /* The address where the instruction will be executed at.  */
   CORE_ADDR new_addr;
   /* Buffer of instructions to be copied to NEW_ADDR to execute.  */
-  uint32_t insn_buf[DISPLACED_MODIFIED_INSNS];
+  uint32_t insn_buf[AARCH64_DISPLACED_MODIFIED_INSNS];
   /* Number of instructions in INSN_BUF.  */
   unsigned insn_count;
   /* Registers when doing displaced stepping.  */
@@ -2991,7 +3001,7 @@ aarch64_displaced_step_copy_insn (struct gdbarch *gdbarch,
   dsd.insn_count = 0;
   aarch64_relocate_instruction (insn, &visitor,
 				(struct aarch64_insn_data *) &dsd);
-  gdb_assert (dsd.insn_count <= DISPLACED_MODIFIED_INSNS);
+  gdb_assert (dsd.insn_count <= AARCH64_DISPLACED_MODIFIED_INSNS);
 
   if (dsd.insn_count != 0)
     {
@@ -3421,8 +3431,6 @@ When on, AArch64 specific debugging is enabled."),
 			    selftests::aarch64_analyze_prologue_test);
   selftests::register_test ("aarch64-process-record",
 			    selftests::aarch64_process_record_test);
-  selftests::record_xml_tdesc ("aarch64.xml",
-			       aarch64_create_target_description (0, false));
 #endif
 }
 

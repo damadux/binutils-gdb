@@ -1041,7 +1041,7 @@ find_primitive_type (struct parser_state *par_state, char *name)
 	(char *) alloca (strlen (name) + sizeof ("standard__"));
       strcpy (expanded_name, "standard__");
       strcat (expanded_name, name);
-      sym = ada_lookup_symbol (expanded_name, NULL, VAR_DOMAIN, NULL).symbol;
+      sym = ada_lookup_symbol (expanded_name, NULL, VAR_DOMAIN).symbol;
       if (sym != NULL && SYMBOL_CLASS (sym) == LOC_TYPEDEF)
 	type = SYMBOL_TYPE (sym);
     }
@@ -1228,19 +1228,6 @@ write_var_or_type (struct parser_state *par_state,
 	  nsyms = ada_lookup_symbol_list (encoded_name, block,
 					  VAR_DOMAIN, &syms);
 	  encoded_name[tail_index] = terminator;
-
-	  /* A single symbol may rename a package or object. */
-
-	  /* This should go away when we move entirely to new version.
-	     FIXME pnh 7/20/2007. */
-	  if (nsyms == 1)
-	    {
-	      struct symbol *ren_sym =
-		ada_find_renaming_symbol (syms[0].symbol, syms[0].block);
-
-	      if (ren_sym != NULL)
-		syms[0].symbol = ren_sym;
-	    }
 
 	  type_sym = select_possible_type_sym (syms);
 

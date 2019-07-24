@@ -42,8 +42,6 @@ struct syscall_catchpoint : public breakpoint
   std::vector<int> syscalls_to_be_caught;
 };
 
-static const struct inferior_data *catch_syscall_inferior_data = NULL;
-
 struct catch_syscall_inferior_data
 {
   /* We keep a count of the number of times the user has requested a
@@ -61,30 +59,20 @@ struct catch_syscall_inferior_data
   int total_syscalls_count;
 };
 
+static const struct inferior_key<struct catch_syscall_inferior_data>
+  catch_syscall_inferior_data;
+
 static struct catch_syscall_inferior_data *
 get_catch_syscall_inferior_data (struct inferior *inf)
 {
   struct catch_syscall_inferior_data *inf_data;
 
-  inf_data = ((struct catch_syscall_inferior_data *)
-	      inferior_data (inf, catch_syscall_inferior_data));
+  inf_data = catch_syscall_inferior_data.get (inf);
   if (inf_data == NULL)
-    {
-      inf_data = new struct catch_syscall_inferior_data ();
-      set_inferior_data (inf, catch_syscall_inferior_data, inf_data);
-    }
+    inf_data = catch_syscall_inferior_data.emplace (inf);
 
   return inf_data;
 }
-
-static void
-catch_syscall_inferior_data_cleanup (struct inferior *inf, void *arg)
-{
-  struct catch_syscall_inferior_data *inf_data
-    = (struct catch_syscall_inferior_data *) arg;
-  delete inf_data;
-}
-
 
 /* Implement the "insert" breakpoint_ops method for syscall
    catchpoints.  */
@@ -217,7 +205,7 @@ print_it_catch_syscall (bpstat bs)
 						: EXEC_ASYNC_SYSCALL_RETURN));
       uiout->field_string ("disp", bpdisp_text (b->disposition));
     }
-  uiout->field_int ("bkptno", b->number);
+  uiout->field_signed ("bkptno", b->number);
 
   if (last.kind == TARGET_WAITKIND_SYSCALL_ENTRY)
     uiout->text (" (call to syscall ");
@@ -225,7 +213,7 @@ print_it_catch_syscall (bpstat bs)
     uiout->text (" (returned from syscall ");
 
   if (s.name == NULL || uiout->is_mi_like_p ())
-    uiout->field_int ("syscall-number", last.value.syscall_number);
+    uiout->field_signed ("syscall-number", last.value.syscall_number);
   if (s.name != NULL)
     uiout->field_string ("syscall-name", s.name);
 
@@ -617,9 +605,6 @@ _initialize_break_catch_syscall (void)
   initialize_syscall_catchpoint_ops ();
 
   gdb::observers::inferior_exit.attach (clear_syscall_counts);
-  catch_syscall_inferior_data
-    = register_inferior_data_with_cleanup (NULL,
-					   catch_syscall_inferior_data_cleanup);
 
   add_catch_command ("syscall", _("\
 Catch system calls by their names, groups and/or numbers.\n\

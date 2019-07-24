@@ -45,12 +45,11 @@
  */
 
 #include "hashtab.h"
-#include "common/array-view.h"
-#include "common/offset-type.h"
-#include "common/enum-flags.h"
-#include "common/underlying.h"
-#include "common/print-utils.h"
-#include "gdbarch.h"
+#include "gdbsupport/array-view.h"
+#include "gdbsupport/offset-type.h"
+#include "gdbsupport/enum-flags.h"
+#include "gdbsupport/underlying.h"
+#include "gdbsupport/print-utils.h"
 
 /* Forward declarations for prototypes.  */
 struct field;
@@ -619,7 +618,7 @@ struct range_bounds
   struct dynamic_prop high;
 
   /* True if HIGH range bound contains the number of elements in the
-     subrange. This affects how the final hight bound is computed.  */
+     subrange.  This affects how the final high bound is computed.  */
 
   int flag_upper_bound_is_count : 1;
 
@@ -1369,7 +1368,8 @@ extern bool set_type_align (struct type *, ULONGEST);
   dynprop->kind
 
 
-/* Moto-specific stuff for FORTRAN arrays.  */
+/* Accessors for struct range_bounds data attached to an array type's
+   index type.  */
 
 #define TYPE_ARRAY_UPPER_BOUND_IS_UNDEFINED(arraytype) \
    TYPE_HIGH_BOUND_UNDEFINED(TYPE_INDEX_TYPE(arraytype))
@@ -1595,6 +1595,7 @@ struct builtin_type
   struct type *builtin_unsigned_short;
   struct type *builtin_unsigned_int;
   struct type *builtin_unsigned_long;
+  struct type *builtin_half;
   struct type *builtin_float;
   struct type *builtin_double;
   struct type *builtin_long_double;
@@ -1690,6 +1691,7 @@ struct objfile_type
   struct type *builtin_unsigned_int;
   struct type *builtin_unsigned_long;
   struct type *builtin_unsigned_long_long;
+  struct type *builtin_half;
   struct type *builtin_float;
   struct type *builtin_double;
   struct type *builtin_long_double;

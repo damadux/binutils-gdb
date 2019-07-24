@@ -31,7 +31,6 @@
 #include "libcoff.h"		/* FIXME secret internal data from BFD */
 #include "objfiles.h"
 #include "buildsym-legacy.h"
-#include "gdb-stabs.h"
 #include "stabsread.h"
 #include "complaints.h"
 #include "target.h"
@@ -43,25 +42,25 @@
 #include "psymtab.h"
 #include "build-id.h"
 
-/* Key for COFF-associated data.  */
-
-static const struct objfile_data *coff_objfile_data_key;
-
 /* The objfile we are currently reading.  */
 
 static struct objfile *coffread_objfile;
 
 struct coff_symfile_info
   {
-    file_ptr min_lineno_offset;	/* Where in file lowest line#s are.  */
-    file_ptr max_lineno_offset;	/* 1+last byte of line#s in file.  */
+    file_ptr min_lineno_offset = 0;	/* Where in file lowest line#s are.  */
+    file_ptr max_lineno_offset = 0;	/* 1+last byte of line#s in file.  */
 
-    CORE_ADDR textaddr;		/* Addr of .text section.  */
-    unsigned int textsize;	/* Size of .text section.  */
+    CORE_ADDR textaddr = 0;		/* Addr of .text section.  */
+    unsigned int textsize = 0;	/* Size of .text section.  */
     std::vector<asection *> *stabsects;	/* .stab sections.  */
-    asection *stabstrsect;	/* Section pointer for .stab section.  */
-    char *stabstrdata;
+    asection *stabstrsect = nullptr;	/* Section pointer for .stab section.  */
+    char *stabstrdata = nullptr;
   };
+
+/* Key for COFF-associated data.  */
+
+static const struct objfile_key<coff_symfile_info> coff_objfile_data_key;
 
 /* Translate an external name string into a user-visible name.  */
 #define	EXTERNAL_NAME(string, abfd) \
@@ -484,16 +483,8 @@ record_minimal_symbol (minimal_symbol_reader &reader,
 static void
 coff_symfile_init (struct objfile *objfile)
 {
-  struct dbx_symfile_info *dbx;
-  struct coff_symfile_info *coff;
-
-  /* Allocate struct to keep track of stab reading.  */
-  dbx = XCNEW (struct dbx_symfile_info);
-  set_objfile_data (objfile, dbx_objfile_data_key, dbx);
-
   /* Allocate struct to keep track of the symfile.  */
-  coff = XCNEW (struct coff_symfile_info);
-  set_objfile_data (objfile, coff_objfile_data_key, coff);
+  coff_objfile_data_key.emplace (objfile);
 
   /* COFF objects may be reordered, so set OBJF_REORDERED.  If we
      find this causes a significant slowdown in gdb then we could
@@ -554,8 +545,7 @@ coff_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
   int stringtab_offset;
   int stabstrsize;
   
-  info = (struct coff_symfile_info *) objfile_data (objfile,
-						    coff_objfile_data_key);
+  info = coff_objfile_data_key.get (objfile);
   symfile_bfd = abfd;		/* Kludge for swap routines.  */
 
   std::vector<asection *> stabsects;
@@ -1738,7 +1728,7 @@ process_coff_symbol (struct coff_symbol *cs,
 		&& *SYMBOL_LINKAGE_NAME (sym) != '~'
 		&& *SYMBOL_LINKAGE_NAME (sym) != '.')
 	      TYPE_NAME (SYMBOL_TYPE (sym)) =
-		concat (SYMBOL_LINKAGE_NAME (sym), (char *)NULL);
+		xstrdup (SYMBOL_LINKAGE_NAME (sym));
 
 	  add_symbol_to_list (sym, get_file_symbols ());
 	  break;
@@ -1794,11 +1784,9 @@ decode_type (struct coff_symbol *cs, unsigned int c_type,
 	  base_type = decode_type (cs, new_c_type, aux, objfile);
 	  index_type = objfile_type (objfile)->builtin_int;
 	  range_type
-	    = create_static_range_type ((struct type *) NULL,
-					index_type, 0, n - 1);
+	    = create_static_range_type (NULL, index_type, 0, n - 1);
 	  type =
-	    create_array_type ((struct type *) NULL, 
-			       base_type, range_type);
+	    create_array_type (NULL, base_type, range_type);
 	}
       return type;
     }
@@ -2211,21 +2199,10 @@ static const struct sym_fns coff_sym_fns =
   &psym_functions
 };
 
-/* Free the per-objfile COFF data.  */
-
-static void
-coff_free_info (struct objfile *objfile, void *arg)
-{
-  xfree (arg);
-}
-
 void
 _initialize_coffread (void)
 {
   add_symtab_fns (bfd_target_coff_flavour, &coff_sym_fns);
-
-  coff_objfile_data_key = register_objfile_data_with_cleanup (NULL,
-							      coff_free_info);
 
   coff_register_index
     = register_symbol_register_impl (LOC_REGISTER, &coff_register_funcs);

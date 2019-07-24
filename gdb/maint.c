@@ -38,27 +38,14 @@
 #include "value.h"
 #include "top.h"
 #include "maint.h"
-#include "common/selftest.h"
+#include "gdbsupport/selftest.h"
 
 #include "cli/cli-decode.h"
 #include "cli/cli-utils.h"
 #include "cli/cli-setshow.h"
+#include "cli/cli-cmds.h"
 
 static void maintenance_do_deprecate (const char *, int);
-
-/* Set this to the maximum number of seconds to wait instead of waiting forever
-   in target_wait().  If this timer times out, then it generates an error and
-   the command is aborted.  This replaces most of the need for timeouts in the
-   GDB test suite, and makes it possible to distinguish between a hung target
-   and one with slow communications.  */
-
-int watchdog = 0;
-static void
-show_watchdog (struct ui_file *file, int from_tty,
-	       struct cmd_list_element *c, const char *value)
-{
-  fprintf_filtered (file, _("Watchdog timer is %s.\n"), value);
-}
 
 /* Access the maintenance subcommands.  */
 
@@ -648,6 +635,24 @@ maintenance_show_cmd (const char *args, int from_tty)
   cmd_show_list (maintenance_show_cmdlist, from_tty, "");
 }
 
+/* "maintenance with" command.  */
+
+static void
+maintenance_with_cmd (const char *args, int from_tty)
+{
+  with_command_1 ("maintenance set ", maintenance_set_cmdlist, args, from_tty);
+}
+
+/* "maintenance with" command completer.  */
+
+static void
+maintenance_with_cmd_completer (struct cmd_list_element *ignore,
+				completion_tracker &tracker,
+				const char *text, const char * /*word*/)
+{
+  with_command_completer_1 ("maintenance set ", tracker,  text);
+}
+
 /* Profiling support.  */
 
 static int maintenance_profile_p;
@@ -808,6 +813,8 @@ scoped_command_stats::~scoped_command_stats ()
 
   if (m_time_enabled && per_command_time)
     {
+      print_time (_("command finished"));
+
       using namespace std::chrono;
 
       run_time_clock::duration cmd_time
@@ -881,6 +888,9 @@ scoped_command_stats::scoped_command_stats (bool msg_type)
       m_start_cpu_time = run_time_clock::now ();
       m_start_wall_time = steady_clock::now ();
       m_time_enabled = 1;
+
+      if (per_command_time)
+	print_time (_("command started"));
     }
   else
     m_time_enabled = 0;
@@ -900,6 +910,26 @@ scoped_command_stats::scoped_command_stats (bool msg_type)
 
   /* Initialize timer to keep track of how long we waited for the user.  */
   reset_prompt_for_continue_wait_time ();
+}
+
+/* See maint.h.  */
+
+void
+scoped_command_stats::print_time (const char *msg)
+{
+  using namespace std::chrono;
+
+  auto now = system_clock::now ();
+  auto ticks = now.time_since_epoch ().count () / (1000 * 1000);
+  auto millis = ticks % 1000;
+
+  std::time_t as_time = system_clock::to_time_t (now);
+  struct tm *tm = localtime (&as_time);
+
+  char out[100];
+  strftime (out, sizeof (out), "%F %H:%M:%S", tm);
+
+  printf_unfiltered ("%s.%03d - %s\n", out, (int) millis, msg);
 }
 
 /* Handle unknown "mt set per-command" arguments.
@@ -1011,6 +1041,15 @@ Configure variables internal to GDB that aid in GDB's maintenance"),
 		  &maintenance_show_cmdlist, "maintenance show ",
 		  0/*allow-unknown*/,
 		  &maintenancelist);
+
+  cmd = add_cmd ("with", class_maintenance, maintenance_with_cmd, _("\
+Like \"with\", but works with \"maintenance set\" variables.\n\
+Usage: maintenance with SETTING [VALUE] [-- COMMAND]\n\
+With no COMMAND, repeats the last executed command.\n\
+SETTING is any setting you can change with the \"maintenance set\"\n\
+subcommands."),
+		 &maintenancelist);
+  set_cmd_completer_handle_brkchars (cmd, maintenance_with_cmd_completer);
 
 #ifndef _WIN32
   add_cmd ("dump-me", class_maintenance, maintenance_dump_me, _("\
@@ -1147,16 +1186,6 @@ If a filter is given, only the tests with that value in their name will ran."),
 
   add_cmd ("selftests", class_maintenance, maintenance_info_selftests,
 	 _("List the registered selftests."), &maintenanceinfolist);
-
-  add_setshow_zinteger_cmd ("watchdog", class_maintenance, &watchdog, _("\
-Set watchdog timer."), _("\
-Show watchdog timer."), _("\
-When non-zero, this timeout is used instead of waiting forever for a target\n\
-to finish a low-level step or continue operation.  If the specified amount\n\
-of time passes without a response from the target, an error occurs."),
-			    NULL,
-			    show_watchdog,
-			    &setlist, &showlist);
 
   add_setshow_boolean_cmd ("profile", class_maintenance,
 			   &maintenance_profile_p, _("\

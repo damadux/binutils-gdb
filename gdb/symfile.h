@@ -26,7 +26,7 @@
 #include "symfile-add-flags.h"
 #include "objfile-flags.h"
 #include "gdb_bfd.h"
-#include "common/function-view.h"
+#include "gdbsupport/function-view.h"
 
 /* Opaque declarations.  */
 struct target_section;
@@ -292,7 +292,8 @@ struct quick_symbol_functions
 struct sym_probe_fns
 {
   /* If non-NULL, return a reference to vector of probe objects.  */
-  const std::vector<probe *> &(*sym_get_probes) (struct objfile *);
+  const std::vector<std::unique_ptr<probe>> &(*sym_get_probes)
+    (struct objfile *);
 };
 
 /* Structure to keep track of symbol reading functions for various
@@ -530,6 +531,12 @@ void expand_symtabs_matching
 
 void map_symbol_filenames (symbol_filename_ftype *fun, void *data,
 			   int need_fullname);
+
+/* Target-agnostic function to load the sections of an executable into memory.
+
+   ARGS should be in the form "EXECUTABLE [OFFSET]", where OFFSET is an
+   optional offset to apply to each section.  */
+extern void generic_load (const char *args, int from_tty);
 
 /* From dwarf2read.c */
 

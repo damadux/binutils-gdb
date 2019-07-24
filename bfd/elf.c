@@ -1067,6 +1067,19 @@ _bfd_elf_make_section_from_shdr (bfd *abfd,
   if ((hdr->sh_flags & SHF_EXCLUDE) != 0)
     flags |= SEC_EXCLUDE;
 
+  switch (elf_elfheader (abfd)->e_ident[EI_OSABI])
+    {
+      /* FIXME: We should not recognize SHF_GNU_MBIND for ELFOSABI_NONE,
+	 but binutils as of 2019-07-23 did not set the EI_OSABI header
+	 byte.  */
+    case ELFOSABI_NONE:
+    case ELFOSABI_GNU:
+    case ELFOSABI_FREEBSD:
+      if ((hdr->sh_flags & SHF_GNU_MBIND) != 0)
+	elf_tdata (abfd)->has_gnu_osabi |= elf_gnu_osabi_mbind;
+      break;
+    }
+
   if ((flags & SEC_ALLOC) == 0)
     {
       /* The debugging sections appear to be recognized only by name,
@@ -3472,7 +3485,8 @@ bfd_elf_set_group_contents (bfd *abfd, asection *sec, void *failedptrarg)
 
   /* Ignore linker created group section.  See elfNN_ia64_object_p in
      elfxx-ia64.c.  */
-  if (((sec->flags & (SEC_GROUP | SEC_LINKER_CREATED)) != SEC_GROUP)
+  if ((sec->flags & (SEC_GROUP | SEC_LINKER_CREATED)) != SEC_GROUP
+      || sec->size == 0
       || *failedptr)
     return;
 
@@ -4424,31 +4438,32 @@ get_program_header_size (bfd *abfd, struct bfd_link_info *info)
 
   bed = get_elf_backend_data (abfd);
 
- if ((abfd->flags & D_PAGED) != 0)
-   {
-     /* Add a PT_GNU_MBIND segment for each mbind section.  */
-     unsigned int page_align_power = bfd_log2 (bed->commonpagesize);
-     for (s = abfd->sections; s != NULL; s = s->next)
-       if (elf_section_flags (s) & SHF_GNU_MBIND)
-	 {
-	   if (elf_section_data (s)->this_hdr.sh_info
-	       > PT_GNU_MBIND_NUM)
-	     {
-	       _bfd_error_handler
-		 /* xgettext:c-format */
-		 (_("%pB: GNU_MBIN section `%pA' has invalid sh_info field: %d"),
-		     abfd, s, elf_section_data (s)->this_hdr.sh_info);
-	       continue;
-	     }
-	   /* Align mbind section to page size.  */
-	   if (s->alignment_power < page_align_power)
-	     s->alignment_power = page_align_power;
-	   segs ++;
-	 }
-   }
+  if ((abfd->flags & D_PAGED) != 0
+      && (elf_tdata (abfd)->has_gnu_osabi & elf_gnu_osabi_mbind) != 0)
+    {
+      /* Add a PT_GNU_MBIND segment for each mbind section.  */
+      unsigned int page_align_power = bfd_log2 (bed->commonpagesize);
+      for (s = abfd->sections; s != NULL; s = s->next)
+	if (elf_section_flags (s) & SHF_GNU_MBIND)
+	  {
+	    if (elf_section_data (s)->this_hdr.sh_info > PT_GNU_MBIND_NUM)
+	      {
+		_bfd_error_handler
+		  /* xgettext:c-format */
+		  (_("%pB: GNU_MBIND section `%pA' has invalid "
+		     "sh_info field: %d"),
+		   abfd, s, elf_section_data (s)->this_hdr.sh_info);
+		continue;
+	      }
+	    /* Align mbind section to page size.  */
+	    if (s->alignment_power < page_align_power)
+	      s->alignment_power = page_align_power;
+	    segs ++;
+	  }
+    }
 
- /* Let the backend count up any program headers it might need.  */
- if (bed->elf_backend_additional_program_headers)
+  /* Let the backend count up any program headers it might need.  */
+  if (bed->elf_backend_additional_program_headers)
     {
       int a;
 
@@ -5044,11 +5059,12 @@ _bfd_elf_map_sections_to_segments (bfd *abfd, struct bfd_link_info *info)
 	  pm = &m->next;
 	}
 
-      if (first_mbind && (abfd->flags & D_PAGED) != 0)
+      if (first_mbind
+	  && (abfd->flags & D_PAGED) != 0
+	  && (elf_tdata (abfd)->has_gnu_osabi & elf_gnu_osabi_mbind) != 0)
 	for (s = first_mbind; s != NULL; s = s->next)
 	  if ((elf_section_flags (s) & SHF_GNU_MBIND) != 0
-	      && (elf_section_data (s)->this_hdr.sh_info
-		  <= PT_GNU_MBIND_NUM))
+	      && elf_section_data (s)->this_hdr.sh_info <= PT_GNU_MBIND_NUM)
 	    {
 	      /* Mandated PF_R.  */
 	      unsigned long p_flags = PF_R;
@@ -5809,6 +5825,35 @@ assign_file_positions_for_load_sections (bfd *abfd,
   return TRUE;
 }
 
+/* Determine if a bfd is a debuginfo file.  Unfortunately there
+   is no defined method for detecting such files, so we have to
+   use heuristics instead.  */
+
+bfd_boolean
+is_debuginfo_file (bfd *abfd)
+{
+  if (abfd == NULL || bfd_get_flavour (abfd) != bfd_target_elf_flavour)
+    return FALSE;
+
+  Elf_Internal_Shdr **start_headers = elf_elfsections (abfd);
+  Elf_Internal_Shdr **end_headers = start_headers + elf_numsections (abfd);
+  Elf_Internal_Shdr **headerp;
+
+  for (headerp = start_headers; headerp < end_headers; headerp ++)
+    {
+      Elf_Internal_Shdr *header = * headerp;
+
+      /* Debuginfo files do not have any allocated SHT_PROGBITS sections.
+	 The only allocated sections are SHT_NOBITS or SHT_NOTES.  */
+      if ((header->sh_flags & SHF_ALLOC) == SHF_ALLOC
+	  && header->sh_type != SHT_NOBITS
+	  && header->sh_type != SHT_NOTE)
+	return FALSE;
+    }
+
+  return TRUE;
+}
+
 /* Assign file positions for the other sections.  */
 
 static bfd_boolean
@@ -5842,7 +5887,13 @@ assign_file_positions_for_non_load_sections (bfd *abfd,
 	BFD_ASSERT (hdr->sh_offset == hdr->bfd_section->filepos);
       else if ((hdr->sh_flags & SHF_ALLOC) != 0)
 	{
-	  if (hdr->sh_size != 0)
+	  if (hdr->sh_size != 0
+	      /* PR 24717 - debuginfo files are known to be not strictly
+		 compliant with the ELF standard.  In particular they often
+		 have .note.gnu.property sections that are outside of any
+		 loadable segment.  This is not a problem for such files,
+		 so do not warn about them.  */
+	      && ! is_debuginfo_file (abfd))
 	    _bfd_error_handler
 	      /* xgettext:c-format */
 	      (_("%pB: warning: allocated section `%s' not in segment"),
@@ -6517,8 +6568,7 @@ _bfd_elf_write_object_contents (bfd *abfd)
 	  || !_bfd_elf_strtab_emit (abfd, elf_shstrtab (abfd))))
     return FALSE;
 
-  if (bed->elf_backend_final_write_processing)
-    (*bed->elf_backend_final_write_processing) (abfd, elf_linker (abfd));
+  (*bed->elf_backend_final_write_processing) (abfd, elf_linker (abfd));
 
   if (!bed->s->write_shdrs_and_ehdr (abfd))
     return FALSE;
@@ -7630,7 +7680,8 @@ _bfd_elf_init_private_section_data (bfd *ibfd,
 			       & (SHF_MASKOS | SHF_MASKPROC));
 
   /* Copy sh_info from input for mbind section.  */
-  if (elf_section_flags (isec) & SHF_GNU_MBIND)
+  if ((elf_tdata (ibfd)->has_gnu_osabi & elf_gnu_osabi_mbind) != 0
+      && elf_section_flags (isec) & SHF_GNU_MBIND)
     elf_section_data (osec)->this_hdr.sh_info
       = elf_section_data (isec)->this_hdr.sh_info;
 
@@ -8442,6 +8493,18 @@ error_return_verref:
 	  goto error_return;
 	}
 
+      ufile_ptr filesize = bfd_get_file_size (abfd);
+      if (filesize > 0 && filesize < hdr->sh_size)
+	{
+	  /* PR 24708: Avoid attempts to allocate a ridiculous amount
+	     of memory.  */
+	  bfd_set_error (bfd_error_no_memory);
+	  _bfd_error_handler
+	    /* xgettext:c-format */
+	    (_("error: %pB version reference section is too large (%#" PRIx64 " bytes)"),
+	     abfd, (uint64_t) hdr->sh_size);
+	  goto error_return_verref;
+	}
       contents = (bfd_byte *) bfd_malloc (hdr->sh_size);
       if (contents == NULL)
 	goto error_return_verref;
@@ -9233,6 +9296,23 @@ _bfd_elfcore_make_pseudosection (bfd *abfd,
   sect->alignment_power = 2;
 
   return elfcore_maybe_make_sect (abfd, name, sect);
+}
+
+static bfd_boolean
+elfcore_make_auxv_note_section (bfd *abfd, Elf_Internal_Note *note,
+				size_t offs)
+{
+  asection *sect = bfd_make_section_anyway_with_flags (abfd, ".auxv",
+						       SEC_HAS_CONTENTS);
+
+  if (sect == NULL)
+    return FALSE;
+
+  sect->size = note->descsz - offs;
+  sect->filepos = note->descpos + offs;
+  sect->alignment_power = 1 + bfd_get_arch_size (abfd) / 32;
+
+  return TRUE;
 }
 
 /* prstatus_t exists on:
@@ -10176,18 +10256,7 @@ elfcore_grok_note (bfd *abfd, Elf_Internal_Note *note)
 #endif
 
     case NT_AUXV:
-      {
-	asection *sect = bfd_make_section_anyway_with_flags (abfd, ".auxv",
-							     SEC_HAS_CONTENTS);
-
-	if (sect == NULL)
-	  return FALSE;
-	sect->size = note->descsz;
-	sect->filepos = note->descpos;
-	sect->alignment_power = 1 + bfd_get_arch_size (abfd) / 32;
-
-	return TRUE;
-      }
+      return elfcore_make_auxv_note_section (abfd, note, 0);
 
     case NT_FILE:
       return elfcore_make_note_pseudosection (abfd, ".note.linuxcore.file",
@@ -10433,18 +10502,7 @@ elfcore_grok_freebsd_note (bfd *abfd, Elf_Internal_Note *note)
 					      note);
 
     case NT_FREEBSD_PROCSTAT_AUXV:
-      {
-	asection *sect = bfd_make_section_anyway_with_flags (abfd, ".auxv",
-							     SEC_HAS_CONTENTS);
-
-	if (sect == NULL)
-	  return FALSE;
-	sect->size = note->descsz - 4;
-	sect->filepos = note->descpos + 4;
-	sect->alignment_power = 1 + bfd_get_arch_size (abfd) / 32;
-
-	return TRUE;
-      }
+      return elfcore_make_auxv_note_section (abfd, note, 4);
 
     case NT_X86_XSTATE:
       if (note->namesz == 8)
@@ -10508,17 +10566,24 @@ elfcore_grok_netbsd_note (bfd *abfd, Elf_Internal_Note *note)
   if (elfcore_netbsd_get_lwpid (note, &lwp))
     elf_tdata (abfd)->core->lwpid = lwp;
 
-  if (note->type == NT_NETBSDCORE_PROCINFO)
+  switch (note->type)
     {
+    case NT_NETBSDCORE_PROCINFO:
       /* NetBSD-specific core "procinfo".  Note that we expect to
 	 find this note before any of the others, which is fine,
 	 since the kernel writes this note out first when it
 	 creates a core file.  */
-
       return elfcore_grok_netbsd_procinfo (abfd, note);
+#ifdef NT_NETBSDCORE_AUXV
+    case NT_NETBSDCORE_AUXV:
+      /* NetBSD-specific Elf Auxiliary Vector data. */
+      return elfcore_make_auxv_note_section (abfd, note, 4);
+#endif
+    default:
+      break;
     }
 
-  /* As of Jan 2002 there are no other machine-independent notes
+  /* As of March 2017 there are no other machine-independent notes
      defined for NetBSD core files.  If the note type is less
      than the start of the machine-dependent note types, we don't
      understand it.  */
@@ -10540,6 +10605,23 @@ elfcore_grok_netbsd_note (bfd *abfd, Elf_Internal_Note *note)
 	  return elfcore_make_note_pseudosection (abfd, ".reg", note);
 
 	case NT_NETBSDCORE_FIRSTMACH+2:
+	  return elfcore_make_note_pseudosection (abfd, ".reg2", note);
+
+	default:
+	  return TRUE;
+	}
+
+      /* On SuperH, PT_GETREGS == mach+3 and PT_GETFPREGS == mach+5.
+	 There's also old PT___GETREGS40 == mach + 1 for old reg
+	 structure which lacks GBR.  */
+
+    case bfd_arch_sh:
+      switch (note->type)
+	{
+	case NT_NETBSDCORE_FIRSTMACH+3:
+	  return elfcore_make_note_pseudosection (abfd, ".reg", note);
+
+	case NT_NETBSDCORE_FIRSTMACH+5:
 	  return elfcore_make_note_pseudosection (abfd, ".reg2", note);
 
 	default:
@@ -10602,18 +10684,7 @@ elfcore_grok_openbsd_note (bfd *abfd, Elf_Internal_Note *note)
     return elfcore_make_note_pseudosection (abfd, ".reg-xfp", note);
 
   if (note->type == NT_OPENBSD_AUXV)
-    {
-      asection *sect = bfd_make_section_anyway_with_flags (abfd, ".auxv",
-							   SEC_HAS_CONTENTS);
-
-      if (sect == NULL)
-	return FALSE;
-      sect->size = note->descsz;
-      sect->filepos = note->descpos;
-      sect->alignment_power = 1 + bfd_get_arch_size (abfd) / 32;
-
-      return TRUE;
-    }
+    return elfcore_make_auxv_note_section (abfd, note, 0);
 
   if (note->type == NT_OPENBSD_WCOOKIE)
     {
@@ -12047,20 +12118,27 @@ asection _bfd_elf_large_com_section
 		      "LARGE_COMMON", 0, SEC_IS_COMMON);
 
 void
-_bfd_elf_post_process_headers (bfd * abfd,
-			       struct bfd_link_info * link_info ATTRIBUTE_UNUSED)
+_bfd_elf_post_process_headers (bfd *abfd ATTRIBUTE_UNUSED,
+			       struct bfd_link_info *info ATTRIBUTE_UNUSED)
 {
-  Elf_Internal_Ehdr * i_ehdrp;	/* ELF file header, internal form.  */
+}
+
+void
+_bfd_elf_final_write_processing (bfd *abfd,
+				 bfd_boolean linker ATTRIBUTE_UNUSED)
+{
+  Elf_Internal_Ehdr *i_ehdrp;	/* ELF file header, internal form.  */
 
   i_ehdrp = elf_elfheader (abfd);
 
-  i_ehdrp->e_ident[EI_OSABI] = get_elf_backend_data (abfd)->elf_osabi;
+  if (i_ehdrp->e_ident[EI_OSABI] == ELFOSABI_NONE)
+    i_ehdrp->e_ident[EI_OSABI] = get_elf_backend_data (abfd)->elf_osabi;
 
-  /* To make things simpler for the loader on Linux systems we set the
-     osabi field to ELFOSABI_GNU if the binary contains symbols of
-     the STT_GNU_IFUNC type or STB_GNU_UNIQUE binding.  */
+  /* Set the osabi field to ELFOSABI_GNU if the binary contains
+     SHF_GNU_MBIND sections or symbols of STT_GNU_IFUNC type or
+     STB_GNU_UNIQUE binding.  */
   if (i_ehdrp->e_ident[EI_OSABI] == ELFOSABI_NONE
-      && elf_tdata (abfd)->has_gnu_symbols)
+      && elf_tdata (abfd)->has_gnu_osabi)
     i_ehdrp->e_ident[EI_OSABI] = ELFOSABI_GNU;
 }
 

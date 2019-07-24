@@ -25,6 +25,7 @@
 #include "command.h"
 #include "gdb_regex.h"
 #include "cli-script.h"
+#include "completer.h"
 
 #if 0
 /* FIXME: cagney/2002-03-17: Once cmd_type() has been removed, ``enum
@@ -249,7 +250,7 @@ extern void help_cmd_list (struct cmd_list_element *, enum command_class,
 extern void help_cmd (const char *, struct ui_file *);
 
 extern void apropos_cmd (struct ui_file *, struct cmd_list_element *,
-                         compiled_regex &, const char *);
+			 bool verbose, compiled_regex &, const char *);
 
 /* Used to mark commands that don't do anything.  If we just leave the
    function field NULL, the command is interpreted as a help topic, or
@@ -261,6 +262,10 @@ extern void not_just_help_class_command (const char *arg, int from_tty);
 
 extern void print_doc_line (struct ui_file *, const char *);
 
+/* The enums of boolean commands.  */
+extern const char * const boolean_enums[];
+
+/* The enums of auto-boolean commands.  */
 extern const char * const auto_boolean_enums[];
 
 /* Verify whether a given cmd_list_element is a user-defined command.

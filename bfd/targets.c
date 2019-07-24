@@ -639,6 +639,8 @@ extern const bfd_target elf32_be_vec;
 extern const bfd_target elf32_le_vec;
 extern const bfd_target elf64_be_vec;
 extern const bfd_target elf64_le_vec;
+extern const bfd_target bpf_elf64_le_vec;
+extern const bfd_target bpf_elf64_be_vec;
 extern const bfd_target epiphany_elf32_vec;
 extern const bfd_target fr30_elf32_vec;
 extern const bfd_target frv_elf32_vec;
@@ -1021,6 +1023,11 @@ static const bfd_target * const _bfd_target_vector[] =
 	&iamcu_elf32_vec,
 
 #ifdef BFD64
+	&bpf_elf64_be_vec,
+	&bpf_elf64_le_vec,
+#endif
+
+#ifdef BFD64
 #if 0
 	&ia64_elf32_be_vec,
 #endif
@@ -1141,10 +1148,6 @@ static const bfd_target * const _bfd_target_vector[] =
 
 	&pj_elf32_vec,
 	&pj_elf32_le_vec,
-
-#if BFD_SUPPORTS_PLUGINS
-	&plugin_vec,
-#endif
 
 	&powerpc_boot_vec,
 	&powerpc_elf32_vec,
@@ -1297,6 +1300,10 @@ static const bfd_target * const _bfd_target_vector[] =
 	&binary_vec,
 /* Likewise for ihex.  */
 	&ihex_vec,
+
+#if BFD_SUPPORTS_PLUGINS
+	&plugin_vec,
+#endif
 
 /* Add any required traditional-core-file-handler.  */
 

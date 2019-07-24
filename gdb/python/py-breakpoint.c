@@ -379,7 +379,6 @@ bppy_set_hit_count (PyObject *self, PyObject *newvalue, void *closure)
 static PyObject *
 bppy_get_location (PyObject *self, void *closure)
 {
-  const char *str;
   gdbpy_breakpoint_object *obj = (gdbpy_breakpoint_object *) self;
 
   BPPY_REQUIRE_VALID (obj);
@@ -387,12 +386,7 @@ bppy_get_location (PyObject *self, void *closure)
   if (obj->bp->type != bp_breakpoint)
     Py_RETURN_NONE;
 
-  struct event_location *location = obj->bp->location.get ();
-  /* "catch throw" makes a breakpoint of type bp_breakpoint that does
-     not have a location.  */
-  if (location == nullptr)
-    Py_RETURN_NONE;
-  str = event_location_to_string (location);
+  const char *str = event_location_to_string (obj->bp->location.get ());
   if (! str)
     str = "";
   return host_string_to_python_string (str).release ();
@@ -1003,7 +997,6 @@ static void
 gdbpy_breakpoint_created (struct breakpoint *bp)
 {
   gdbpy_breakpoint_object *newbp;
-  PyGILState_STATE state;
 
   if (!user_breakpoint_p (bp) && bppy_pending_object == NULL)
     return;
@@ -1015,7 +1008,8 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
       && bp->type != bp_access_watchpoint)
     return;
 
-  state = PyGILState_Ensure ();
+  struct gdbarch *garch = bp->gdbarch ? bp->gdbarch : get_current_arch ();
+  gdbpy_enter enter_py (garch, current_language);
 
   if (bppy_pending_object)
     {
@@ -1046,8 +1040,6 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
 			   gdb_py_events.breakpoint_created) < 0)
 	gdbpy_print_stack ();
     }
-
-  PyGILState_Release (state);
 }
 
 /* Callback that is used when a breakpoint is deleted.  This will
@@ -1056,13 +1048,14 @@ static void
 gdbpy_breakpoint_deleted (struct breakpoint *b)
 {
   int num = b->number;
-  PyGILState_STATE state;
   struct breakpoint *bp = NULL;
 
-  state = PyGILState_Ensure ();
   bp = get_breakpoint (num);
   if (bp)
     {
+      struct gdbarch *garch = bp->gdbarch ? bp->gdbarch : get_current_arch ();
+      gdbpy_enter enter_py (garch, current_language);
+
       gdbpy_ref<gdbpy_breakpoint_object> bp_obj (bp->py_bp_object);
       if (bp_obj != NULL)
 	{
@@ -1077,7 +1070,6 @@ gdbpy_breakpoint_deleted (struct breakpoint *b)
 	  --bppy_live;
 	}
     }
-  PyGILState_Release (state);
 }
 
 /* Callback that is used when a breakpoint is modified.  */
@@ -1086,13 +1078,14 @@ static void
 gdbpy_breakpoint_modified (struct breakpoint *b)
 {
   int num = b->number;
-  PyGILState_STATE state;
   struct breakpoint *bp = NULL;
 
-  state = PyGILState_Ensure ();
   bp = get_breakpoint (num);
   if (bp)
     {
+      struct gdbarch *garch = bp->gdbarch ? bp->gdbarch : get_current_arch ();
+      gdbpy_enter enter_py (garch, current_language);
+
       PyObject *bp_obj = (PyObject *) bp->py_bp_object;
       if (bp_obj)
 	{
@@ -1104,7 +1097,6 @@ gdbpy_breakpoint_modified (struct breakpoint *b)
 	    }
 	}
     }
-  PyGILState_Release (state);
 }
 
 

@@ -93,7 +93,7 @@ const struct extension_language_defn extension_language_python =
 #include "python-internal.h"
 #include "linespec.h"
 #include "source.h"
-#include "common/version.h"
+#include "gdbsupport/version.h"
 #include "target.h"
 #include "gdbthread.h"
 #include "interps.h"
@@ -1602,7 +1602,7 @@ do_start_initialization ()
   std::string oldloc = setlocale (LC_ALL, NULL);
   setlocale (LC_ALL, "");
   progsize = strlen (progname.get ());
-  progname_copy = (wchar_t *) PyMem_Malloc ((progsize + 1) * sizeof (wchar_t));
+  progname_copy = (wchar_t *) xmalloc ((progsize + 1) * sizeof (wchar_t));
   if (!progname_copy)
     {
       fprintf (stderr, "out of memory\n");
@@ -1759,8 +1759,7 @@ argument, and if the command is an expression, the result will be\n\
 printed.  For example:\n\
 \n\
     (gdb) python-interactive 2 + 3\n\
-    5\n\
-")
+    5")
 #else /* HAVE_PYTHON */
 	   _("\
 Start a Python interactive prompt.\n\
@@ -1876,7 +1875,7 @@ do_finish_initialization (const struct extension_language_defn *extlang)
       warning (_("\n"
 		 "Could not load the Python gdb module from `%s'.\n"
 		 "Limited Python support is available from the _gdb module.\n"
-		 "Suggest passing --data-directory=/path/to/gdb/data-directory.\n"),
+		 "Suggest passing --data-directory=/path/to/gdb/data-directory."),
 	       gdb_pythondir.c_str ());
       /* We return "success" here as we've already emitted the
 	 warning.  */

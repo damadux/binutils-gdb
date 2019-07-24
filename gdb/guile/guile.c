@@ -30,7 +30,7 @@
 #include "top.h"
 #include "extension-priv.h"
 #include "utils.h"
-#include "common/version.h"
+#include "gdbsupport/version.h"
 #ifdef HAVE_GUILE
 #include "guile.h"
 #include "guile-internal.h"
@@ -568,7 +568,7 @@ handle_boot_error (void *boot_scm_file, SCM key, SCM args)
   warning (_("Could not complete Guile gdb module initialization from:\n"
 	     "%s.\n"
 	     "Limited Guile support is available.\n"
-	     "Suggest passing --data-directory=/path/to/gdb/data-directory.\n"),
+	     "Suggest passing --data-directory=/path/to/gdb/data-directory."),
 	   (const char *) boot_scm_file);
 
   return SCM_UNSPECIFIED;

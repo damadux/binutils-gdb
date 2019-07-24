@@ -46,10 +46,6 @@ ACX_LARGEFILE
 
 AM_CONDITIONAL(PLUGINS, test "$plugins" = "yes")
 
-if test "$plugins" = "yes"; then
-  enable_targets="$enable_targets plugin"
-fi
-
 AC_ARG_ENABLE(64-bit-bfd,
 [  --enable-64-bit-bfd     64-bit support (on hosts with narrower word sizes)],
 [case "${enableval}" in
@@ -349,12 +345,12 @@ selarchs=
 TDEFINES=
 for targ in $target $canon_targets
 do
-    if test "x$targ" = "xall"; then
+    if test $targ = all; then
         all_targets=true
 	assocvecs="$assocvecs $targ_defvec $targ_selvecs"
-    else
+    elif test $targ != plugin; then
 	. $srcdir/config.bfd
-	if test "x$targ" = "x$target"; then
+	if test $targ = $target; then
 	    defvec=$targ_defvec
 	fi
 	selvecs="$selvecs $targ_defvec $targ_selvecs"
@@ -476,6 +472,8 @@ do
     elf32_le_vec)		 tb="$tb elf32-gen.lo elf32.lo $elf" ;;
     elf64_be_vec)		 tb="$tb elf64-gen.lo elf64.lo $elf"; target_size=64 ;;
     elf64_le_vec)		 tb="$tb elf64-gen.lo elf64.lo $elf"; target_size=64 ;;
+    bpf_elf64_le_vec)		 tb="$tb elf64-bpf.lo elf64.lo $elf"; target_size=64;;
+    bpf_elf64_be_vec)		 tb="$tb elf64-bpf.lo elf64.lo $elf"; target_size=64 ;;
     epiphany_elf32_vec)		 tb="$tb elf32-epiphany.lo elf32.lo $elf" ;;
     fr30_elf32_vec)		 tb="$tb elf32-fr30.lo elf32.lo $elf" ;;
     frv_elf32_vec)		 tb="$tb elf32-frv.lo elf32.lo $elf" ;;
@@ -590,7 +588,6 @@ do
     pef_xlib_vec)		 tb="$tb pef.lo" ;;
     pj_elf32_vec)		 tb="$tb elf32-pj.lo elf32.lo $elf" ;;
     pj_elf32_le_vec)		 tb="$tb elf32-pj.lo elf32.lo $elf" ;;
-    plugin_vec)			 tb="$tb plugin.lo" ;;
     powerpc_boot_vec)		 tb="$tb ppcboot.lo" ;;
     powerpc_elf32_vec)		 tb="$tb elf32-ppc.lo elf-vxworks.lo elf32.lo $elf" ;;
     powerpc_elf32_le_vec)	 tb="$tb elf32-ppc.lo elf-vxworks.lo elf32.lo $elf" ;;
@@ -716,6 +713,10 @@ do
 	bfd_default_target_size=${target_size}
     fi
 done
+
+if test "$plugins" = "yes"; then
+     tb="$tb plugin.lo"
+fi
 
 # Target architecture .o files.
 # A couple of CPUs use shorter file names to avoid problems on DOS

@@ -90,8 +90,6 @@ containing @code{end}.  For example:
 
 @smallexample
 (@value{GDBP}) python
-Type python script
-End with a line saying just "end".
 >print 23
 >end
 23
@@ -1087,6 +1085,11 @@ languages have this concept.  If this type has no tag name, then
 @code{None} is returned.
 @end defvar
 
+@defvar Type.objfile
+The @code{gdb.Objfile} that this type was defined in, or @code{None} if
+there is no associated objfile.
+@end defvar
+
 The following methods are provided:
 
 @defun Type.fields ()
@@ -1370,6 +1373,12 @@ object which is convertible to a @value{GDBN} value.
 
 This method is optional.  If it does not exist, @value{GDBN} will act
 as though the value has no children.
+
+For efficiency, the @code{children} method should lazily compute its
+results.  This will let @value{GDBN} read as few elements as
+necessary, for example when various print settings (@pxref{Print
+Settings}) or @code{-var-list-children} (@pxref{GDB/MI Variable
+Objects}) limit the number of elements to be displayed.
 
 Children may be hidden from display based on the value of @samp{set
 print max-depth} (@pxref{Print Settings}).

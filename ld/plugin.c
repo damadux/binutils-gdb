@@ -659,9 +659,9 @@ is_visible_from_outside (struct ld_plugin_symbol *lsym,
   return FALSE;
 }
 
-/* Return LTO kind string name that corresponds to INDEX enum value.  */
+/* Return LTO kind string name that corresponds to IDX enum value.  */
 static const char *
-get_lto_kind (unsigned int index)
+get_lto_kind (unsigned int idx)
 {
   static char buffer[64];
   const char *lto_kind_str[5] =
@@ -673,16 +673,16 @@ get_lto_kind (unsigned int index)
     "COMMON"
   };
 
-  if (index < ARRAY_SIZE (lto_kind_str))
-    return lto_kind_str [index];
+  if (idx < ARRAY_SIZE (lto_kind_str))
+    return lto_kind_str [idx];
 
-  sprintf (buffer, _("unknown LTO kind value %x"), index);
+  sprintf (buffer, _("unknown LTO kind value %x"), idx);
   return buffer;
 }
 
-/* Return LTO resolution string name that corresponds to INDEX enum value.  */
+/* Return LTO resolution string name that corresponds to IDX enum value.  */
 static const char *
-get_lto_resolution (unsigned int index)
+get_lto_resolution (unsigned int idx)
 {
   static char buffer[64];
   static const char *lto_resolution_str[10] =
@@ -699,16 +699,16 @@ get_lto_resolution (unsigned int index)
     "PREVAILING_DEF_IRONLY_EXP",
   };
 
-  if (index < ARRAY_SIZE (lto_resolution_str))
-    return lto_resolution_str [index];
+  if (idx < ARRAY_SIZE (lto_resolution_str))
+    return lto_resolution_str [idx];
 
-  sprintf (buffer, _("unknown LTO resolution value %x"), index);
+  sprintf (buffer, _("unknown LTO resolution value %x"), idx);
   return buffer;
 }
 
-/* Return LTO visibility string name that corresponds to INDEX enum value.  */
+/* Return LTO visibility string name that corresponds to IDX enum value.  */
 static const char *
-get_lto_visibility (unsigned int index)
+get_lto_visibility (unsigned int idx)
 {
   static char buffer[64];
   const char *lto_visibility_str[4] =
@@ -719,10 +719,10 @@ get_lto_visibility (unsigned int index)
     "HIDDEN"
   };
 
-  if (index < ARRAY_SIZE (lto_visibility_str))
-    return lto_visibility_str [index];
+  if (idx < ARRAY_SIZE (lto_visibility_str))
+    return lto_visibility_str [idx];
 
-  sprintf (buffer, _("unknown LTO visibility value %x"), index);
+  sprintf (buffer, _("unknown LTO visibility value %x"), idx);
   return buffer;
 }
 
@@ -1406,30 +1406,36 @@ plugin_notice (struct bfd_link_info *info,
 	  ref = TRUE;
 	}
 
-      /* Otherwise, it must be a new def.  */
-      else
+
+      /* A common symbol should be merged with other commons or
+	 defs with the same name.  In particular, a common ought
+	 to be overridden by a def in a -flto object.  In that
+	 sense a common is also a ref.  */
+      else if (bfd_is_com_section (section))
 	{
-	  /* Ensure any symbol defined in an IR dummy BFD takes on a
-	     new value from a real BFD.  Weak symbols are not normally
-	     overridden by a new weak definition, and strong symbols
-	     will normally cause multiple definition errors.  Avoid
-	     this by making the symbol appear to be undefined.  */
-	  if (((h->type == bfd_link_hash_defweak
-		|| h->type == bfd_link_hash_defined)
-	       && is_ir_dummy_bfd (sym_bfd = h->u.def.section->owner))
-	      || (h->type == bfd_link_hash_common
-		  && is_ir_dummy_bfd (sym_bfd = h->u.c.p->section->owner)))
+	  if (h->type == bfd_link_hash_common
+	      && is_ir_dummy_bfd (sym_bfd = h->u.c.p->section->owner))
 	    {
 	      h->type = bfd_link_hash_undefweak;
 	      h->u.undef.abfd = sym_bfd;
 	    }
+	  ref = TRUE;
+	}
 
-	  /* A common symbol should be merged with other commons or
-	     defs with the same name.  In particular, a common ought
-	     to be overridden by a def in a -flto object.  In that
-	     sense a common is also a ref.  */
-	  if (bfd_is_com_section (section))
-	    ref = TRUE;
+      /* Otherwise, it must be a new def.
+	 Ensure any symbol defined in an IR dummy BFD takes on a
+	 new value from a real BFD.  Weak symbols are not normally
+	 overridden by a new weak definition, and strong symbols
+	 will normally cause multiple definition errors.  Avoid
+	 this by making the symbol appear to be undefined.  */
+      else if (((h->type == bfd_link_hash_defweak
+		 || h->type == bfd_link_hash_defined)
+		&& is_ir_dummy_bfd (sym_bfd = h->u.def.section->owner))
+	       || (h->type == bfd_link_hash_common
+		   && is_ir_dummy_bfd (sym_bfd = h->u.c.p->section->owner)))
+	{
+	  h->type = bfd_link_hash_undefweak;
+	  h->u.undef.abfd = sym_bfd;
 	}
 
       if (ref)

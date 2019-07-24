@@ -196,6 +196,17 @@ automatically cause those extensions to be disabled.
  @tab Enable ARMv8.5-A Memory Tagging Extensions.
 @item @code{tme} @tab ARMv8-A @tab No
  @tab Enable Transactional Memory Extensions.
+@item @code{sve2} @tab ARMv8-A @tab No
+ @tab Enable the SVE2 Extension.
+@item @code{sve2-bitperm} @tab ARMv8-A @tab No
+ @tab Enable SVE2 BITPERM Extension.
+@item @code{sve2-sm4} @tab ARMv8-A @tab No
+ @tab Enable SVE2 SM4 Extension.
+@item @code{sve2-aes} @tab ARMv8-A @tab No
+ @tab Enable SVE2 AES Extension.  This also enables the .Q->.B form of the
+ @code{pmullt} and @code{pmullb} instructions.
+@item @code{sve2-sha3} @tab ARMv8-A @tab No
+ @tab Enable SVE2 SHA3 Extension.
 @end multitable
 
 @node AArch64 Syntax
@@ -428,6 +439,12 @@ be used to delete builtin in register name aliases (eg 'w0').  This
 should only be done if it is really necessary.
 
 @c VVVVVVVVVVVVVVVVVVVVVVVVVV
+
+@cindex @code{.variant_pcs} directive, AArch64
+@item .variant_pcs @var{symbol}
+This directive marks @var{symbol} referencing a function that may
+follow a variant procedure call standard with different register
+usage convention from the base procedure call standard.
 
 @c WWWWWWWWWWWWWWWWWWWWWWWWWW
 @c XXXXXXXXXXXXXXXXXXXXXXXXXX

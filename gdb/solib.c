@@ -31,7 +31,7 @@
 #include "frame.h"
 #include "gdb_regex.h"
 #include "inferior.h"
-#include "common/environ.h"
+#include "gdbsupport/environ.h"
 #include "language.h"
 #include "gdbcmd.h"
 #include "completer.h"
@@ -45,7 +45,7 @@
 #include "interps.h"
 #include "filesystem.h"
 #include "gdb_bfd.h"
-#include "common/filestuff.h"
+#include "gdbsupport/filestuff.h"
 #include "source.h"
 
 /* Architecture-specific operations.  */
@@ -1104,7 +1104,7 @@ info_sharedlibrary_command (const char *pattern, int from_tty)
 	else
 	  uiout->field_string ("syms-read", so->symbols_loaded ? "Yes" : "No");
 
-	uiout->field_string ("name", so->so_name);
+	uiout->field_string ("name", so->so_name, ui_out_style_kind::FILE);
 
 	uiout->text ("\n");
       }

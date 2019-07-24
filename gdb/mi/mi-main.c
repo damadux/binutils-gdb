@@ -44,7 +44,7 @@
 #include "language.h"
 #include "valprint.h"
 #include "osdata.h"
-#include "common/gdb_splay_tree.h"
+#include "gdbsupport/gdb_splay_tree.h"
 #include "tracepoint.h"
 #include "ctf.h"
 #include "ada-lang.h"
@@ -52,14 +52,14 @@
 #include "extension.h"
 #include "gdbcmd.h"
 #include "observable.h"
-#include "common/gdb_optional.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/gdb_optional.h"
+#include "gdbsupport/byte-vector.h"
 
 #include <ctype.h>
-#include "common/run-time-clock.h"
+#include "gdbsupport/run-time-clock.h"
 #include <chrono>
 #include "progspace-and-thread.h"
-#include "common/rsp-low.h"
+#include "gdbsupport/rsp-low.h"
 #include <algorithm>
 #include <set>
 #include <map>
@@ -592,13 +592,13 @@ mi_cmd_thread_list_ids (const char *command, char **argv, int argc)
 	  current_thread = tp->global_num;
 
 	num++;
-	current_uiout->field_int ("thread-id", tp->global_num);
+	current_uiout->field_signed ("thread-id", tp->global_num);
       }
   }
 
   if (current_thread != -1)
-    current_uiout->field_int ("current-thread-id", current_thread);
-  current_uiout->field_int ("number-of-threads", num);
+    current_uiout->field_signed ("current-thread-id", current_thread);
+  current_uiout->field_signed ("number-of-threads", num);
 }
 
 void
@@ -658,7 +658,7 @@ print_one_inferior (struct inferior *inferior, void *xdata)
 	uiout->field_string ("exit-code",
 			     int_string (inferior->exit_code, 8, 0, 0, 1));
       if (inferior->pid != 0)
-	uiout->field_int ("pid", inferior->pid);
+	uiout->field_signed ("pid", inferior->pid);
 
       if (inferior->pspace->pspace_exec_filename != NULL)
 	{
@@ -677,7 +677,7 @@ print_one_inferior (struct inferior *inferior, void *xdata)
 	  ui_out_emit_list list_emitter (uiout, "cores");
 
 	  for (int b : data.cores)
-	    uiout->field_int (NULL, b);
+	    uiout->field_signed (NULL, b);
 	}
 
       if (top_data->recurse)
@@ -695,7 +695,7 @@ static void
 output_cores (struct ui_out *uiout, const char *field_name, const char *xcores)
 {
   ui_out_emit_list list_emitter (uiout, field_name);
-  gdb::unique_xmalloc_ptr<char> cores (xstrdup (xcores));
+  auto cores = make_unique_xstrdup (xcores);
   char *p = cores.get ();
 
   for (p = strtok (p, ","); p;  p = strtok (NULL, ","))
@@ -746,7 +746,7 @@ list_available_thread_groups (const std::set<int> &ids, int recurse)
 
       ui_out_emit_tuple tuple_emitter (uiout, NULL);
 
-      uiout->field_fmt ("id", "%s", pid->c_str ());
+      uiout->field_string ("id", pid->c_str ());
       uiout->field_string ("type", "process");
       if (cmd)
 	uiout->field_string ("description", cmd->c_str ());
@@ -964,7 +964,7 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
 
 	  if (register_changed_p (regnum, prev_regs.get (),
 				  this_regs.get ()))
-	    uiout->field_int (NULL, regnum);
+	    uiout->field_signed (NULL, regnum);
 	}
     }
 
@@ -980,7 +980,7 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
 	{
 	  if (register_changed_p (regnum, prev_regs.get (),
 				  this_regs.get ()))
-	    uiout->field_int (NULL, regnum);
+	    uiout->field_signed (NULL, regnum);
 	}
       else
 	error (_("bad register number"));
@@ -1124,7 +1124,7 @@ output_register (struct frame_info *frame, int regnum, int format,
     return;
 
   ui_out_emit_tuple tuple_emitter (uiout, NULL);
-  uiout->field_int ("number", regnum);
+  uiout->field_signed ("number", regnum);
 
   if (format == 'N')
     format = 0;
@@ -1353,8 +1353,8 @@ mi_cmd_data_read_memory (const char *command, char **argv, int argc)
 
   /* Output the header information.  */
   uiout->field_core_addr ("addr", gdbarch, addr);
-  uiout->field_int ("nr-bytes", nr_bytes);
-  uiout->field_int ("total-bytes", total_bytes);
+  uiout->field_signed ("nr-bytes", nr_bytes);
+  uiout->field_signed ("total-bytes", total_bytes);
   uiout->field_core_addr ("next-row", gdbarch, addr + word_size * nr_cols);
   uiout->field_core_addr ("prev-row", gdbarch, addr - word_size * nr_cols);
   uiout->field_core_addr ("next-page", gdbarch, addr + total_bytes);
@@ -2191,8 +2191,8 @@ mi_load_progress (const char *section_name,
       {
 	ui_out_emit_tuple tuple_emitter (uiout.get (), NULL);
 	uiout->field_string ("section", section_name);
-	uiout->field_int ("section-size", total_section);
-	uiout->field_int ("total-size", grand_total);
+	uiout->field_signed ("section-size", total_section);
+	uiout->field_signed ("total-size", grand_total);
       }
       mi_out_put (uiout.get (), mi->raw_stdout);
       fputs_unfiltered ("\n", mi->raw_stdout);
@@ -2209,10 +2209,10 @@ mi_load_progress (const char *section_name,
       {
 	ui_out_emit_tuple tuple_emitter (uiout.get (), NULL);
 	uiout->field_string ("section", section_name);
-	uiout->field_int ("section-sent", sent_so_far);
-	uiout->field_int ("section-size", total_section);
-	uiout->field_int ("total-sent", total_sent);
-	uiout->field_int ("total-size", grand_total);
+	uiout->field_signed ("section-sent", sent_so_far);
+	uiout->field_signed ("section-size", total_section);
+	uiout->field_signed ("total-sent", total_sent);
+	uiout->field_signed ("total-size", grand_total);
       }
       mi_out_put (uiout.get (), mi->raw_stdout);
       fputs_unfiltered ("\n", mi->raw_stdout);
@@ -2656,7 +2656,7 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 
 	    tsv->value_known = target_get_trace_state_variable_value (tsv->number,
 								      &tsv->value);
-	    uiout->field_int ("current", tsv->value);
+	    uiout->field_signed ("current", tsv->value);
 	  }
 	else
 	  {
@@ -2681,7 +2681,7 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 	ui_out_emit_tuple tuple_emitter (uiout, NULL);
 
 	uiout->field_core_addr ("address", gdbarch, r.start);
-	uiout->field_int ("length", r.length);
+	uiout->field_signed ("length", r.length);
 
 	gdb::byte_vector data (r.length);
 
@@ -2699,32 +2699,59 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
   }
 }
 
-/* Whether to use the fixed output when printing information about a
-   multi-location breakpoint (see PR 9659).  */
-
-static bool fix_multi_location_breakpoint_output = false;
-
 /* See mi/mi-main.h.  */
 
 void
 mi_cmd_fix_multi_location_breakpoint_output (const char *command, char **argv,
 					     int argc)
 {
-  fix_multi_location_breakpoint_output = true;
+  fix_multi_location_breakpoint_output_globally = true;
 }
 
-/* See mi/mi-main.h.  */
+/* Implement the "-complete" command.  */
 
-bool
-mi_multi_location_breakpoint_output_fixed (ui_out *uiout)
+void
+mi_cmd_complete (const char *command, char **argv, int argc)
 {
-  mi_ui_out *mi_uiout = dynamic_cast<mi_ui_out *> (uiout);
+  if (argc != 1)
+    error (_("Usage: -complete COMMAND"));
 
-  if (mi_uiout == nullptr)
-    return false;
+  if (max_completions == 0)
+    error (_("max-completions is zero, completion is disabled."));
 
-  return mi_uiout->version () >= 3 || fix_multi_location_breakpoint_output;
+  int quote_char = '\0';
+  const char *word;
+
+  completion_result result = complete (argv[0], &word, &quote_char);
+
+  std::string arg_prefix (argv[0], word - argv[0]);
+
+  struct ui_out *uiout = current_uiout;
+
+  if (result.number_matches > 0)
+    uiout->field_fmt ("completion", "%s%s",
+                      arg_prefix.c_str (),result.match_list[0]);
+
+  {
+    ui_out_emit_list completions_emitter (uiout, "matches");
+
+    if (result.number_matches == 1)
+      uiout->field_fmt (NULL, "%s%s",
+                        arg_prefix.c_str (), result.match_list[0]);
+    else
+      {
+        result.sort_match_list ();
+        for (size_t i = 0; i < result.number_matches; i++)
+          {
+            uiout->field_fmt (NULL, "%s%s",
+                              arg_prefix.c_str (), result.match_list[i + 1]);
+          }
+      }
+  }
+  uiout->field_string ("max_completions_reached",
+                       result.number_matches == max_completions ? "1" : "0");
 }
+
 
 void
 _initialize_mi_main (void)

@@ -23,7 +23,7 @@
 #include "target.h"
 #include "nat/linux-nat.h"
 #include "nat/linux-waitpid.h"
-#include "common/gdb_wait.h"
+#include "gdbsupport/gdb_wait.h"
 #include <unistd.h>
 #include <sys/syscall.h>
 #include "nat/gdb_ptrace.h"
@@ -58,15 +58,15 @@
 #include "nat/linux-osdata.h"
 #include "linux-tdep.h"
 #include "symfile.h"
-#include "common/agent.h"
+#include "gdbsupport/agent.h"
 #include "tracepoint.h"
-#include "common/buffer.h"
+#include "gdbsupport/buffer.h"
 #include "target-descriptions.h"
-#include "common/filestuff.h"
+#include "gdbsupport/filestuff.h"
 #include "objfiles.h"
 #include "nat/linux-namespaces.h"
-#include "common/fileio.h"
-#include "common/scope-exit.h"
+#include "gdbsupport/fileio.h"
+#include "gdbsupport/scope-exit.h"
 
 #ifndef SPUFS_MAGIC
 #define SPUFS_MAGIC 0x23c9b64e
@@ -747,9 +747,6 @@ lwp_list_remove (struct lwp_info *lp)
 }
 
 
-
-/* Original signal mask.  */
-static sigset_t normal_mask;
 
 /* Signal mask for use with sigsuspend in linux_nat_wait, initialized in
    _initialize_linux_nat.  */
@@ -4683,9 +4680,6 @@ Enables printf debugging output."),
 			   NULL,
 			   NULL,
 			   &setdebuglist, &showdebuglist);
-
-  /* Save this mask as the default.  */
-  sigprocmask (SIG_SETMASK, NULL, &normal_mask);
 
   /* Install a SIGCHLD handler.  */
   sigchld_action.sa_handler = sigchld_handler;

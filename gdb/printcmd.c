@@ -23,6 +23,7 @@
 #include "gdbtypes.h"
 #include "value.h"
 #include "language.h"
+#include "c-lang.h"
 #include "expression.h"
 #include "gdbcore.h"
 #include "gdbcmd.h"
@@ -45,11 +46,13 @@
 #include "charset.h"
 #include "arch-utils.h"
 #include "cli/cli-utils.h"
+#include "cli/cli-option.h"
 #include "cli/cli-script.h"
 #include "cli/cli-style.h"
-#include "common/format.h"
+#include "gdbsupport/format.h"
 #include "source.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/byte-vector.h"
+#include "gdbsupport/gdb_optional.h"
 
 /* Last specified output format.  */
 
@@ -1117,40 +1120,41 @@ validate_format (struct format_data fmt, const char *cmdname)
 	   fmt.format, cmdname);
 }
 
-/* Parse print command format string into *FMTP and update *EXPP.
+/* Parse print command format string into *OPTS and update *EXPP.
    CMDNAME should name the current command.  */
 
 void
 print_command_parse_format (const char **expp, const char *cmdname,
-			    struct format_data *fmtp)
+			    value_print_options *opts)
 {
   const char *exp = *expp;
 
   if (exp && *exp == '/')
     {
+      format_data fmt;
+
       exp++;
-      *fmtp = decode_format (&exp, last_format, 0);
-      validate_format (*fmtp, cmdname);
-      last_format = fmtp->format;
+      fmt = decode_format (&exp, last_format, 0);
+      validate_format (fmt, cmdname);
+      last_format = fmt.format;
+
+      opts->format = fmt.format;
+      opts->raw = fmt.raw;
     }
   else
     {
-      fmtp->count = 1;
-      fmtp->format = 0;
-      fmtp->size = 0;
-      fmtp->raw = 0;
+      opts->format = 0;
+      opts->raw = 0;
     }
 
   *expp = exp;
 }
 
-/* Print VAL to console according to *FMTP, including recording it to
-   the history.  */
+/* See valprint.h.  */
 
 void
-print_value (struct value *val, const struct format_data *fmtp)
+print_value (value *val, const value_print_options &opts)
 {
-  struct value_print_options opts;
   int histindex = record_latest_value (val);
 
   annotate_value_history_begin (histindex, value_type (val));
@@ -1159,28 +1163,31 @@ print_value (struct value *val, const struct format_data *fmtp)
 
   annotate_value_history_value ();
 
-  get_formatted_print_options (&opts, fmtp->format);
-  opts.raw = fmtp->raw;
-
-  print_formatted (val, fmtp->size, &opts, gdb_stdout);
+  print_formatted (val, 0, &opts, gdb_stdout);
   printf_filtered ("\n");
 
   annotate_value_history_end ();
 }
 
-/* Evaluate string EXP as an expression in the current language and
-   print the resulting value.  EXP may contain a format specifier as the
-   first argument ("/x myvar" for example, to print myvar in hex).  */
+/* Implementation of the "print" and "call" commands.  */
 
 static void
-print_command_1 (const char *exp, int voidprint)
+print_command_1 (const char *args, int voidprint)
 {
   struct value *val;
-  struct format_data fmt;
+  value_print_options print_opts;
 
-  print_command_parse_format (&exp, "print", &fmt);
+  get_user_print_options (&print_opts);
+  /* Override global settings with explicit options, if any.  */
+  auto group = make_value_print_options_def_group (&print_opts);
+  gdb::option::process_options
+    (&args, gdb::option::PROCESS_OPTIONS_REQUIRE_DELIMITER, group);
 
-  if (exp && *exp)
+  print_command_parse_format (&args, "print", &print_opts);
+
+  const char *exp = args;
+
+  if (exp != nullptr && *exp)
     {
       expression_up expr = parse_expression (exp);
       val = evaluate_expression (expr.get ());
@@ -1190,7 +1197,23 @@ print_command_1 (const char *exp, int voidprint)
 
   if (voidprint || (val && value_type (val) &&
 		    TYPE_CODE (value_type (val)) != TYPE_CODE_VOID))
-    print_value (val, &fmt);
+    print_value (val, print_opts);
+}
+
+/* See valprint.h.  */
+
+void
+print_command_completer (struct cmd_list_element *ignore,
+			 completion_tracker &tracker,
+			 const char *text, const char * /*word*/)
+{
+  const auto group = make_value_print_options_def_group (nullptr);
+  if (gdb::option::complete_options
+      (tracker, &text, gdb::option::PROCESS_OPTIONS_REQUIRE_DELIMITER, group))
+    return;
+
+  const char *word = advance_to_expression_complete_word_point (tracker, text);
+  expression_completer (ignore, tracker, text, word);
 }
 
 static void
@@ -2200,42 +2223,64 @@ print_variable_and_value (const char *name, struct symbol *var,
 
 /* Subroutine of ui_printf to simplify it.
    Print VALUE to STREAM using FORMAT.
-   VALUE is a C-style string on the target.  */
+   VALUE is a C-style string either on the target or
+   in a GDB internal variable.  */
 
 static void
 printf_c_string (struct ui_file *stream, const char *format,
 		 struct value *value)
 {
-  gdb_byte *str;
-  CORE_ADDR tem;
-  int j;
+  const gdb_byte *str;
 
-  tem = value_as_address (value);
-  if (tem == 0)
+  if (VALUE_LVAL (value) == lval_internalvar
+      && c_is_string_type_p (value_type (value)))
     {
-      DIAGNOSTIC_PUSH
-      DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
-      fprintf_filtered (stream, format, "(null)");
-      DIAGNOSTIC_POP
-      return;
-    }
+      size_t len = TYPE_LENGTH (value_type (value));
 
-  /* This is a %s argument.  Find the length of the string.  */
-  for (j = 0;; j++)
+      /* Copy the internal var value to TEM_STR and append a terminating null
+	 character.  This protects against corrupted C-style strings that lack
+	 the terminating null char.  It also allows Ada-style strings (not
+	 null terminated) to be printed without problems.  */
+      gdb_byte *tem_str = (gdb_byte *) alloca (len + 1);
+
+      memcpy (tem_str, value_contents (value), len);
+      tem_str [len] = 0;
+      str = tem_str;
+    }
+  else
     {
-      gdb_byte c;
+      CORE_ADDR tem = value_as_address (value);;
 
-      QUIT;
-      read_memory (tem + j, &c, 1);
-      if (c == 0)
-	break;
+      if (tem == 0)
+	{
+	  DIAGNOSTIC_PUSH
+	  DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
+	  fprintf_filtered (stream, format, "(null)");
+	  DIAGNOSTIC_POP
+	  return;
+	}
+
+      /* This is a %s argument.  Find the length of the string.  */
+      size_t len;
+
+      for (len = 0;; len++)
+	{
+	  gdb_byte c;
+
+	  QUIT;
+	  read_memory (tem + len, &c, 1);
+	  if (c == 0)
+	    break;
+	}
+
+      /* Copy the string contents into a string inside GDB.  */
+      gdb_byte *tem_str = (gdb_byte *) alloca (len + 1);
+
+      if (len != 0)
+	read_memory (tem, tem_str, len);
+      tem_str[len] = 0;
+      str = tem_str;
     }
-
-  /* Copy the string contents into a string inside GDB.  */
-  str = (gdb_byte *) alloca (j + 1);
-  if (j != 0)
-    read_memory (tem, str, j);
-  str[j] = 0;
 
   DIAGNOSTIC_PUSH
   DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
@@ -2245,52 +2290,65 @@ printf_c_string (struct ui_file *stream, const char *format,
 
 /* Subroutine of ui_printf to simplify it.
    Print VALUE to STREAM using FORMAT.
-   VALUE is a wide C-style string on the target.  */
+   VALUE is a wide C-style string on the target or
+   in a GDB internal variable.  */
 
 static void
 printf_wide_c_string (struct ui_file *stream, const char *format,
 		      struct value *value)
 {
-  gdb_byte *str;
-  CORE_ADDR tem;
-  int j;
+  const gdb_byte *str;
+  size_t len;
   struct gdbarch *gdbarch = get_type_arch (value_type (value));
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   struct type *wctype = lookup_typename (current_language, gdbarch,
 					 "wchar_t", NULL, 0);
   int wcwidth = TYPE_LENGTH (wctype);
-  gdb_byte *buf = (gdb_byte *) alloca (wcwidth);
 
-  tem = value_as_address (value);
-  if (tem == 0)
+  if (VALUE_LVAL (value) == lval_internalvar
+      && c_is_string_type_p (value_type (value)))
     {
-      DIAGNOSTIC_PUSH
-      DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
-      fprintf_filtered (stream, format, "(null)");
-      DIAGNOSTIC_POP
-      return;
+      str = value_contents (value);
+      len = TYPE_LENGTH (value_type (value));
     }
-
-  /* This is a %s argument.  Find the length of the string.  */
-  for (j = 0;; j += wcwidth)
+  else
     {
-      QUIT;
-      read_memory (tem + j, buf, wcwidth);
-      if (extract_unsigned_integer (buf, wcwidth, byte_order) == 0)
-	break;
-    }
+      CORE_ADDR tem = value_as_address (value);
 
-  /* Copy the string contents into a string inside GDB.  */
-  str = (gdb_byte *) alloca (j + wcwidth);
-  if (j != 0)
-    read_memory (tem, str, j);
-  memset (&str[j], 0, wcwidth);
+      if (tem == 0)
+	{
+	  DIAGNOSTIC_PUSH
+	  DIAGNOSTIC_IGNORE_FORMAT_NONLITERAL
+	  fprintf_filtered (stream, format, "(null)");
+	  DIAGNOSTIC_POP
+	  return;
+	}
+
+      /* This is a %s argument.  Find the length of the string.  */
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      gdb_byte *buf = (gdb_byte *) alloca (wcwidth);
+
+      for (len = 0;; len += wcwidth)
+	{
+	  QUIT;
+	  read_memory (tem + len, buf, wcwidth);
+	  if (extract_unsigned_integer (buf, wcwidth, byte_order) == 0)
+	    break;
+	}
+
+      /* Copy the string contents into a string inside GDB.  */
+      gdb_byte *tem_str = (gdb_byte *) alloca (len + wcwidth);
+
+      if (len != 0)
+	read_memory (tem, tem_str, len);
+      memset (&tem_str[len], 0, wcwidth);
+      str = tem_str;
+    }
 
   auto_obstack output;
 
   convert_between_encodings (target_wide_charset (gdbarch),
 			     host_charset (),
-			     str, j, wcwidth,
+			     str, len, wcwidth,
 			     &output, translit_char);
   obstack_grow_str0 (&output, "");
 
@@ -2761,7 +2819,7 @@ Usage: call EXP\n\
 The argument is the function name and arguments, in the notation of the\n\
 current working language.  The result is printed and saved in the value\n\
 history, if it is not void."));
-  set_cmd_completer (c, expression_completer);
+  set_cmd_completer_handle_brkchars (c, print_command_completer);
 
   add_cmd ("variable", class_vars, set_command, _("\
 Evaluate expression EXP and assign result to variable VAR\n\
@@ -2775,9 +2833,18 @@ This may usually be abbreviated to simply \"set\"."),
 	   &setlist);
   add_alias_cmd ("var", "variable", class_vars, 0, &setlist);
 
-  c = add_com ("print", class_vars, print_command, _("\
+  const auto print_opts = make_value_print_options_def_group (nullptr);
+
+  static const std::string print_help = gdb::option::build_help (N_("\
 Print value of expression EXP.\n\
-Usage: print[/FMT] EXP\n\
+Usage: print [[OPTION]... --] [/FMT] [EXP]\n\
+\n\
+Options:\n\
+%OPTIONS%\
+Note: because this command accepts arbitrary expressions, if you\n\
+specify any command option, you must use a double dash (\"--\")\n\
+to mark the end of option processing.  E.g.: \"print -o -- myobj\".\n\
+\n\
 Variables accessible are those of the lexical environment of the selected\n\
 stack frame, plus all those whose scope is global or an entire file.\n\
 \n\
@@ -2797,8 +2864,11 @@ where FOO is stored, etc.  FOO must be an expression whose value\n\
 resides in memory.\n\
 \n\
 EXP may be preceded with /FMT, where FMT is a format letter\n\
-but no count or size letter (see \"x\" command)."));
-  set_cmd_completer (c, expression_completer);
+but no count or size letter (see \"x\" command)."),
+					      print_opts);
+
+  c = add_com ("print", class_vars, print_command, print_help.c_str ());
+  set_cmd_completer_handle_brkchars (c, print_command_completer);
   add_com_alias ("p", "print", class_vars, 1);
   add_com_alias ("inspect", "print", class_vars, 1);
 

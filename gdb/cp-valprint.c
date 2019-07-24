@@ -35,40 +35,8 @@
 #include "language.h"
 #include "extension.h"
 #include "typeprint.h"
-#include "common/byte-vector.h"
-
-/* Controls printing of vtbl's.  */
-static void
-show_vtblprint (struct ui_file *file, int from_tty,
-		struct cmd_list_element *c, const char *value)
-{
-  fprintf_filtered (file, _("\
-Printing of C++ virtual function tables is %s.\n"),
-		    value);
-}
-
-/* Controls looking up an object's derived type using what we find in
-   its vtables.  */
-static void
-show_objectprint (struct ui_file *file, int from_tty,
-		  struct cmd_list_element *c,
-		  const char *value)
-{
-  fprintf_filtered (file, _("\
-Printing of object's derived type based on vtable info is %s.\n"),
-		    value);
-}
-
-static void
-show_static_field_print (struct ui_file *file, int from_tty,
-			 struct cmd_list_element *c,
-			 const char *value)
-{
-  fprintf_filtered (file,
-		    _("Printing of C++ static members is %s.\n"),
-		    value);
-}
-
+#include "gdbsupport/byte-vector.h"
+#include "gdbarch.h"
 
 static struct obstack dont_print_vb_obstack;
 static struct obstack dont_print_statmem_obstack;
@@ -329,22 +297,20 @@ cp_print_value_fields (struct type *type, struct type *real_type,
 		}
 	      else if (field_is_static (&TYPE_FIELD (type, i)))
 		{
-		  struct value *v = NULL;
-
 		  try
 		    {
-		      v = value_static_field (type, i);
-		    }
+		      struct value *v = value_static_field (type, i);
 
+		      cp_print_static_field (TYPE_FIELD_TYPE (type, i),
+					     v, stream, recurse + 1,
+					     opts);
+		    }
 		  catch (const gdb_exception_error &ex)
 		    {
 		      fprintf_filtered (stream,
 					_("<error reading variable: %s>"),
 					ex.what ());
 		    }
-
-		  cp_print_static_field (TYPE_FIELD_TYPE (type, i),
-					 v, stream, recurse + 1, opts);
 		}
 	      else if (i == vptr_fieldno && type == vptr_basetype)
 		{
@@ -823,30 +789,6 @@ cp_print_class_member (const gdb_byte *valaddr, struct type *type,
 void
 _initialize_cp_valprint (void)
 {
-  add_setshow_boolean_cmd ("static-members", class_support,
-			   &user_print_options.static_field_print, _("\
-Set printing of C++ static members."), _("\
-Show printing of C++ static members."), NULL,
-			   NULL,
-			   show_static_field_print,
-			   &setprintlist, &showprintlist);
-
-  add_setshow_boolean_cmd ("vtbl", class_support,
-			   &user_print_options.vtblprint, _("\
-Set printing of C++ virtual function tables."), _("\
-Show printing of C++ virtual function tables."), NULL,
-			   NULL,
-			   show_vtblprint,
-			   &setprintlist, &showprintlist);
-
-  add_setshow_boolean_cmd ("object", class_support,
-			   &user_print_options.objectprint, _("\
-Set printing of object's derived type based on vtable info."), _("\
-Show printing of object's derived type based on vtable info."), NULL,
-			   NULL,
-			   show_objectprint,
-			   &setprintlist, &showprintlist);
-
   obstack_begin (&dont_print_stat_array_obstack,
 		 32 * sizeof (struct type *));
   obstack_begin (&dont_print_statmem_obstack,

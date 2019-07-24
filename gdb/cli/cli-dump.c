@@ -30,14 +30,15 @@
 #include "gdbcore.h"
 #include "cli/cli-utils.h"
 #include "gdb_bfd.h"
-#include "common/filestuff.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/filestuff.h"
+#include "gdbsupport/byte-vector.h"
+#include "gdbarch.h"
 
 static gdb::unique_xmalloc_ptr<char>
 scan_expression (const char **cmd, const char *def)
 {
   if ((*cmd) == NULL || (**cmd) == '\0')
-    return gdb::unique_xmalloc_ptr<char> (xstrdup (def));
+    return make_unique_xstrdup (def);
   else
     {
       char *exp;

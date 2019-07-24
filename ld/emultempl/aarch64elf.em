@@ -31,7 +31,7 @@ static int no_enum_size_warning = 0;
 static int no_wchar_size_warning = 0;
 static int pic_veneer = 0;
 static int fix_erratum_835769 = 0;
-static int fix_erratum_843419 = 0;
+static erratum_84319_opts fix_erratum_843419 = ERRAT_NONE;
 static int no_apply_dynamic_relocs = 0;
 static aarch64_plt_type plt_type = PLT_NORMAL;
 static aarch64_enable_bti_type bti_type = BTI_NONE;
@@ -169,7 +169,7 @@ elf${ELFSIZE}_aarch64_add_stub_section (const char *stub_sec_name,
   lang_output_section_statement_type *os;
   struct hook_stub_info info;
 
-  flags = (SEC_ALLOC | SEC_LOAD | SEC_READONLY | SEC_CODE
+  flags = (SEC_ALLOC | SEC_LOAD | SEC_READONLY | SEC_CODE | SEC_LINKER_CREATED
 	   | SEC_HAS_CONTENTS | SEC_RELOC | SEC_IN_MEMORY | SEC_KEEP);
   stub_sec = bfd_make_section_anyway_with_flags (stub_file->the_bfd,
 						 stub_sec_name, flags);
@@ -372,8 +372,6 @@ PARSE_AND_LIST_PROLOGUE='
 #define OPTION_FIX_ERRATUM_835769	313
 #define OPTION_FIX_ERRATUM_843419	314
 #define OPTION_NO_APPLY_DYNAMIC_RELOCS	315
-#define OPTION_FORCE_BTI		316
-#define OPTION_PAC_PLT			317
 '
 
 PARSE_AND_LIST_SHORTOPTS=p
@@ -385,10 +383,8 @@ PARSE_AND_LIST_LONGOPTS='
   { "stub-group-size", required_argument, NULL, OPTION_STUBGROUP_SIZE },
   { "no-wchar-size-warning", no_argument, NULL, OPTION_NO_WCHAR_SIZE_WARNING},
   { "fix-cortex-a53-835769", no_argument, NULL, OPTION_FIX_ERRATUM_835769},
-  { "fix-cortex-a53-843419", no_argument, NULL, OPTION_FIX_ERRATUM_843419},
+  { "fix-cortex-a53-843419", optional_argument, NULL, OPTION_FIX_ERRATUM_843419},
   { "no-apply-dynamic-relocs", no_argument, NULL, OPTION_NO_APPLY_DYNAMIC_RELOCS},
-  { "force-bti", no_argument, NULL, OPTION_FORCE_BTI},
-  { "pac-plt", no_argument, NULL, OPTION_PAC_PLT},
 '
 
 PARSE_AND_LIST_OPTIONS='
@@ -407,11 +403,32 @@ PARSE_AND_LIST_OPTIONS='
                                 Values of +/-1 indicate the linker should\n\
                                 choose suitable defaults.\n"));
   fprintf (file, _("  --fix-cortex-a53-835769      Fix erratum 835769\n"));
-  fprintf (file, _("  --fix-cortex-a53-843419      Fix erratum 843419\n"));
+  fprintf (file, _("\
+  --fix-cortex-a53-843419[=full|adr|adrp]      Fix erratum 843419 and optionally specify which workaround to use.\n\
+                                               full (default): Use both ADRP and ADR workaround, this will \n\
+                                                 increase the size of your binaries.\n\
+                                               adr: Only use the ADR workaround, this will not cause any increase\n\
+                                                 in binary size but linking will fail if the referenced address is\n\
+                                                 out of range of an ADR instruction.  This will remove the need of using\n\
+                                                 a veneer and results in both performance and size benefits.\n\
+                                               adrp: Use only the ADRP workaround, this will never rewrite your ADRP\n\
+                                                 instruction into an ADR.  As such the workaround will always use a\n\
+                                                 veneer and this will give you both a performance and size overhead.\n"));
   fprintf (file, _("  --no-apply-dynamic-relocs    Do not apply link-time values for dynamic relocations\n"));
-  fprintf (file, _("  --force-bti                  Turn on Branch Target Identification mechanism and generate PLTs with BTI. Generate warnings for missing BTI on inputs\n"));
-  fprintf (file, _("  --pac-plt                    Protect PLTs with Pointer Authentication.\n"));
+  fprintf (file, _("  -z force-bti                  Turn on Branch Target Identification mechanism and generate PLTs with BTI. Generate warnings for missing BTI on inputs\n"));
+  fprintf (file, _("  -z pac-plt                    Protect PLTs with Pointer Authentication.\n"));
 '
+
+PARSE_AND_LIST_ARGS_CASE_Z_AARCH64='
+      else if (strcmp (optarg, "force-bti") == 0)
+	{
+	  plt_type |= PLT_BTI;
+	  bti_type = BTI_WARN;
+	}
+      else if (strcmp (optarg, "pac-plt") == 0)
+	plt_type |= PLT_PAC;
+'
+PARSE_AND_LIST_ARGS_CASE_Z="$PARSE_AND_LIST_ARGS_CASE_Z $PARSE_AND_LIST_ARGS_CASE_Z_AARCH64"
 
 PARSE_AND_LIST_ARGS_CASES='
     case '\'p\'':
@@ -435,20 +452,23 @@ PARSE_AND_LIST_ARGS_CASES='
       break;
 
     case OPTION_FIX_ERRATUM_843419:
-      fix_erratum_843419 = 1;
+      fix_erratum_843419 = ERRAT_ADR | ERRAT_ADRP;
+      if (optarg && *optarg)
+	{
+	  if (strcmp ("full", optarg) == 0)
+	    fix_erratum_843419 = ERRAT_ADR | ERRAT_ADRP;
+	  else if (strcmp ("adrp", optarg) == 0)
+	    fix_erratum_843419 = ERRAT_ADRP;
+	  else if (strcmp ("adr", optarg) == 0)
+	    fix_erratum_843419 = ERRAT_ADR;
+	  else
+	    einfo (_("%P: error: unrecognized option for "
+		     "--fix-cortex-a53-843419: %s\n"), optarg);
+	}
       break;
 
     case OPTION_NO_APPLY_DYNAMIC_RELOCS:
       no_apply_dynamic_relocs = 1;
-      break;
-
-    case OPTION_FORCE_BTI:
-      plt_type |= PLT_BTI;
-      bti_type = BTI_WARN;
-      break;
-
-    case OPTION_PAC_PLT:
-      plt_type |= PLT_PAC;
       break;
 
     case OPTION_STUBGROUP_SIZE:

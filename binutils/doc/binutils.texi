@@ -1215,6 +1215,7 @@ objcopy [@option{-F} @var{bfdname}|@option{--target=}@var{bfdname}]
         [@option{--elf-stt-common=@var{val}}]
         [@option{--merge-notes}]
         [@option{--no-merge-notes}]
+        [@option{--verilog-data-width=@var{val}}]
         [@option{-v}|@option{--verbose}]
         [@option{-V}|@option{--version}]
         [@option{--help}] [@option{--info}]
@@ -1858,7 +1859,7 @@ like this:
 @smallexample
  objcopy --add-gnu-debuglink=foo.debug
 @end smallexample
- 
+
 At debug time the debugger will attempt to look for the separate debug
 info file in a set of known locations.  The exact set of these
 locations varies depending upon the distribution being used, but it
@@ -2048,6 +2049,11 @@ SHT_NOTE type sections by removing duplicate notes.
 @itemx --version
 Show the version number of @command{objcopy}.
 
+@item --verilog-data-width=@var{bytes}
+For Verilog output, this options controls the number of bytes
+converted for each output data element.  The input target controls the
+endianness of the conversion.
+
 @item -v
 @itemx --verbose
 Verbose output: list all object files modified.  In the case of
@@ -2104,6 +2110,7 @@ objdump [@option{-a}|@option{--archive-headers}]
         [@option{-s}|@option{--full-contents}]
         [@option{-W[lLiaprmfFsoRtUuTgAckK]}|
          @option{--dwarf}[=rawline,=decodedline,=info,=abbrev,=pubnames,=aranges,=macro,=frames,=frames-interp,=str,=loc,=Ranges,=pubtypes,=trace_info,=trace_abbrev,=trace_aranges,=gdb_index,=addr,=cu_index,=links,=follow-links]]
+        [@option{--ctf=}@var{section}]
         [@option{-G}|@option{--stabs}]
         [@option{-t}|@option{--syms}]
         [@option{-T}|@option{--dynamic-syms}]
@@ -2116,6 +2123,9 @@ objdump [@option{-a}|@option{--archive-headers}]
         [@option{--adjust-vma=}@var{offset}]
         [@option{--dwarf-depth=@var{n}}]
         [@option{--dwarf-start=@var{n}}]
+        [@option{--ctf-parent=}@var{section}]
+        [@option{--ctf-symbols=}@var{section}]
+        [@option{--ctf-strings=}@var{section}]
         [@option{--no-recurse-limit}|@option{--recurse-limit}]
         [@option{--special-syms}]
         [@option{--prefix=}@var{prefix}]
@@ -2631,6 +2641,8 @@ instructions.
 @item --dwarf-check
 Enable additional checks for consistency of Dwarf information.
 
+@include ctf.options.texi
+
 @item -G
 @itemx --stabs
 @cindex stab
@@ -3060,7 +3072,7 @@ sequences that it can find.
 
 For backwards compatibility any file that occurs after a command-line
 option of just @option{-} will also be scanned in full, regardless of
-the presence of any @option{-d} option. 
+the presence of any @option{-d} option.
 
 @command{strings} is mainly useful for determining the contents of
 non-text files.
@@ -4630,6 +4642,10 @@ readelf [@option{-a}|@option{--all}]
          @option{--debug-dump}[=rawline,=decodedline,=info,=abbrev,=pubnames,=aranges,=macro,=frames,=frames-interp,=str,=loc,=Ranges,=pubtypes,=trace_info,=trace_abbrev,=trace_aranges,=gdb_index,=addr,=cu_index,=links,=follow-links]]
         [@option{--dwarf-depth=@var{n}}]
         [@option{--dwarf-start=@var{n}}]
+        [@option{--ctf=}@var{section}]
+        [@option{--ctf-parent=}@var{section}]
+        [@option{--ctf-symbols=}@var{section}]
+        [@option{--ctf-strings=}@var{section}]
         [@option{-I}|@option{--histogram}]
         [@option{-v}|@option{--version}]
         [@option{-W}|@option{--wide}]
@@ -4809,6 +4825,15 @@ command to @command{ar}, but without using the BFD library.  @xref{ar}.
 @item -w[lLiaprmfFsoRtUuTgAckK]
 @itemx --debug-dump[=rawline,=decodedline,=info,=abbrev,=pubnames,=aranges,=macro,=frames,=frames-interp,=str,=loc,=Ranges,=pubtypes,=trace_info,=trace_abbrev,=trace_aranges,=gdb_index,=addr,=cu_index,=links,=follow-links]
 @include debug.options.texi
+
+@include ctf.options.texi
+@item --ctf-symbols=@var{section}
+@item --ctf-strings=@var{section}
+Specify the name of another section from which the CTF file can inherit
+strings and symbols.
+
+If either of @option{--ctf-symbols} or @option{--ctf-strings} is specified, the
+other must be specified as well.
 
 @item -I
 @itemx --histogram

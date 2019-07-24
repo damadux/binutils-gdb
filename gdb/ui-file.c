@@ -23,7 +23,7 @@
 #include "ui-file.h"
 #include "gdb_obstack.h"
 #include "gdb_select.h"
-#include "common/filestuff.h"
+#include "gdbsupport/filestuff.h"
 
 null_file null_stream;
 
@@ -336,20 +336,13 @@ stderr_file::stderr_file (FILE *stream)
 
 
 
-tee_file::tee_file (ui_file *one, bool close_one,
-		    ui_file *two, bool close_two)
+tee_file::tee_file (ui_file *one, ui_file_up &&two)
   : m_one (one),
-    m_two (two),
-    m_close_one (close_one),
-    m_close_two (close_two)
+    m_two (std::move (two))
 {}
 
 tee_file::~tee_file ()
 {
-  if (m_close_one)
-    delete m_one;
-  if (m_close_two)
-    delete m_two;
 }
 
 void
@@ -402,4 +395,36 @@ tee_file::can_emit_style_escape ()
   return (this == gdb_stdout
 	  && m_one->term_out ()
 	  && term_cli_styling ());
+}
+
+/* See ui-file.h.  */
+
+void
+no_terminal_escape_file::write (const char *buf, long length_buf)
+{
+  std::string copy (buf, length_buf);
+  this->puts (copy.c_str ());
+}
+
+/* See ui-file.h.  */
+
+void
+no_terminal_escape_file::puts (const char *buf)
+{
+  while (*buf != '\0')
+    {
+      const char *esc = strchr (buf, '\033');
+      if (esc == nullptr)
+	break;
+
+      int n_read = 0;
+      if (!skip_ansi_escape (esc, &n_read))
+	++esc;
+
+      this->stdio_file::write (buf, esc - buf);
+      buf = esc + n_read;
+    }
+
+  if (*buf != '\0')
+    this->stdio_file::write (buf, strlen (buf));
 }

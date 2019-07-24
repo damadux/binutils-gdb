@@ -50,7 +50,7 @@
 #include "dwarf2-frame.h"
 #include "user-regs.h"
 #include "valprint.h"
-#include "common/common-defs.h"
+#include "gdbsupport/common-defs.h"
 #include "opcode/riscv-opc.h"
 #include "cli/cli-decode.h"
 #include "observable.h"
@@ -1385,10 +1385,12 @@ riscv_insn::decode (struct gdbarch *gdbarch, CORE_ADDR pc)
 	m_opcode = OTHER;
     }
   else
-    internal_error (__FILE__, __LINE__,
-		    _("unable to decode %d byte instructions in "
-		      "prologue at %s"), m_length,
-		    core_addr_to_string (pc));
+    {
+      /* This must be a 6 or 8 byte instruction, we don't currently decode
+	 any of these, so just ignore it.  */
+      gdb_assert (m_length == 6 || m_length == 8);
+      m_opcode = OTHER;
+    }
 }
 
 /* The prologue scanner.  This is currently only used for skipping the
@@ -1619,11 +1621,44 @@ riscv_push_dummy_code (struct gdbarch *gdbarch, CORE_ADDR sp,
 		       struct type *value_type, CORE_ADDR *real_pc,
 		       CORE_ADDR *bp_addr, struct regcache *regcache)
 {
+  /* A nop instruction is 'add x0, x0, 0'.  */
+  static const gdb_byte nop_insn[] = { 0x13, 0x00, 0x00, 0x00 };
+
   /* Allocate space for a breakpoint, and keep the stack correctly
-     aligned.  */
+     aligned.  The space allocated here must be at least big enough to
+     accommodate the NOP_INSN defined above.  */
   sp -= 16;
   *bp_addr = sp;
   *real_pc = funaddr;
+
+  /* When we insert a breakpoint we select whether to use a compressed
+     breakpoint or not based on the existing contents of the memory.
+
+     If the breakpoint is being placed onto the stack as part of setting up
+     for an inferior call from GDB, then the existing stack contents may
+     randomly appear to be a compressed instruction, causing GDB to insert
+     a compressed breakpoint.  If this happens on a target that does not
+     support compressed instructions then this could cause problems.
+
+     To prevent this issue we write an uncompressed nop onto the stack at
+     the location where the breakpoint will be inserted.  In this way we
+     ensure that we always use an uncompressed breakpoint, which should
+     work on all targets.
+
+     We call TARGET_WRITE_MEMORY here so that if the write fails we don't
+     throw an exception.  Instead we ignore the error and move on.  The
+     assumption is that either GDB will error later when actually trying to
+     insert a software breakpoint, or GDB will use hardware breakpoints and
+     there will be no need to write to memory later.  */
+  int status = target_write_memory (*bp_addr, nop_insn, sizeof (nop_insn));
+
+  if (riscv_debug_breakpoints || riscv_debug_infcall)
+    fprintf_unfiltered (gdb_stdlog,
+			"Writing %lld-byte nop instruction to %s: %s\n",
+			((unsigned long long) sizeof (nop_insn)),
+			paddress (gdbarch, *bp_addr),
+			(status == 0 ? "success" : "failed"));
+
   return sp;
 }
 
@@ -2915,18 +2950,6 @@ riscv_features_from_gdbarch_info (const struct gdbarch_info info)
       else if (e_flags & EF_RISCV_FLOAT_ABI_SINGLE)
 	features.flen = 4;
     }
-  else
-    {
-      const struct bfd_arch_info *binfo = info.bfd_arch_info;
-
-      if (binfo->bits_per_word == 32)
-	features.xlen = 4;
-      else if (binfo->bits_per_word == 64)
-	features.xlen = 8;
-      else
-	internal_error (__FILE__, __LINE__, _("unknown bits_per_word %d"),
-			binfo->bits_per_word);
-    }
 
   return features;
 }
@@ -3094,7 +3117,21 @@ riscv_gdbarch_init (struct gdbarch_info info,
       valid_p &= riscv_check_tdesc_feature (tdesc_data, feature_fpu,
                                             &riscv_freg_feature);
 
-      int bitsize = tdesc_register_bitsize (feature_fpu, "ft0");
+      /* Search for the first floating point register (by any alias), to
+         determine the bitsize.  */
+      int bitsize = -1;
+      const auto &fp0 = riscv_freg_feature.registers[0];
+
+      for (const char *name : fp0.names)
+	{
+	  if (tdesc_unnumbered_register (feature_fpu, name))
+	    {
+	      bitsize = tdesc_register_bitsize (feature_fpu, name);
+	      break;
+	    }
+	}
+
+      gdb_assert (bitsize != -1);
       features.flen = (bitsize / 8);
 
       if (riscv_debug_gdbarch)

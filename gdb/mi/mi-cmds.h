@@ -44,6 +44,9 @@ extern mi_cmd_argv_ftype mi_cmd_catch_exception;
 extern mi_cmd_argv_ftype mi_cmd_catch_handlers;
 extern mi_cmd_argv_ftype mi_cmd_catch_load;
 extern mi_cmd_argv_ftype mi_cmd_catch_unload;
+extern mi_cmd_argv_ftype mi_cmd_catch_throw;
+extern mi_cmd_argv_ftype mi_cmd_catch_rethrow;
+extern mi_cmd_argv_ftype mi_cmd_catch_catch;
 extern mi_cmd_argv_ftype mi_cmd_disassemble;
 extern mi_cmd_argv_ftype mi_cmd_data_evaluate_expression;
 extern mi_cmd_argv_ftype mi_cmd_data_list_register_names;
@@ -125,6 +128,7 @@ extern mi_cmd_argv_ftype mi_cmd_var_update;
 extern mi_cmd_argv_ftype mi_cmd_enable_pretty_printing;
 extern mi_cmd_argv_ftype mi_cmd_enable_frame_filters;
 extern mi_cmd_argv_ftype mi_cmd_var_set_update_range;
+extern mi_cmd_argv_ftype mi_cmd_complete;
 
 /* Description of a single command.  */
 

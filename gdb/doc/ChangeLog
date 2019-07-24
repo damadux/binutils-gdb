@@ -1,3 +1,138 @@
+2019-07-22  Andrew Burgess  <andrew.burgess@embecosm.com>
+
+	* gdb.texinfo (Symbols): Add information about -q flag to "info
+	types".
+
+2019-07-20  Kevin Buettner  <kevinb@redhat.com>
+
+	* python.texi (python command): Revise example to match
+	command behavior.
+
+2019-07-09  Pedro Alves  <palves@redhat.com>
+
+	* gdb.texinfo (C++ Exception GDB/MI Catchpoint Commands): Adjust
+	examples to show type=catchpoint instead of type=breakpoint and an
+	address.
+
+2019-07-03  Pedro Alves  <palves@redhat.com>
+	    Philippe Waroquiers  <philippe.waroquiers@skynet.be>
+
+	* gdb.texinfo (Command Settings): New node documenting the general
+	concept of settings, how to change them, and the new "with"
+	command.
+	(Maintenance Commands): Document "maint with".
+
+2019-07-03  Pedro Alves  <palves@redhat.com>
+
+	* gdb.texinfo (Maintenance Commands): Document "maint set/show
+	test-settings" instead of "maint test-settings set/show".
+
+2019-06-18  Simon Marchi  <simon.marchi@efficios.com>
+
+	* gdb.texinfo (Invoking GDB): Remove sentence about how GDB
+	deals with a file that has the same name as the specified pid to
+	attach to.  Add example using -p option.
+	(gdb man): Remove same sentence as in previous item.
+
+2019-06-15  Andrew Burgess  <andrew.burgess@embecosm.com>
+
+	* gdb.texinfo (GDB/MI Catchpoint Commands): Add menu entry to new
+	node.
+	(C++ Exception GDB/MI Catchpoint Commands): New node to describe
+	new MI commands.
+
+2019-06-13  Pedro Alves  <palves@redhat.com>
+
+	* gdb.texinfo (Command Completion): Mention command options too.
+	(Command Options): New node.
+	(Threads): Add anchors.  Extend descriptions of the "taas" and
+	"tfaas" commands.
+	(Backtrace): Describe new options of the "backtrace" command.  Add
+	anchors.
+	(Frame Apply): Describe new options of the "frame apply" and
+	"faas" commands.  Add anchors.
+	(Data): Describe new options of the "print" command.  Add anchors.
+	(Compiling and Injecting Code): Mention options of the "compile
+	print" command.
+	(Maintenance Commands): Mention "maint test-options" subcommands
+	and the "maint show test-options-completion-result" command.
+
+2019-06-13  Pedro Alves  <palves@redhat.com>
+
+	* gdb.texinfo (Print Settings): Document "set/show print
+	raw-frame-arguments" instead of "set/show print raw
+	frame-arguments".
+
+2019-06-13  Pedro Alves  <palves@redhat.com>
+
+	* gdb.texinfo (Maintenance Commands): Document "maint
+	test-settings" commands.
+
+2019-06-06  Amos Bird  <amosbird@gmail.com>
+
+	* annotate.texinfo (Multi-threaded Apps): Add entry for thread-exited
+	annotation.
+
+2019-06-04  Christian Biesinger  <cbiesinger@google.com>
+
+	* python.texi: Document new gdb.Type.objfile property.
+
+2019-06-03  Philippe Waroquiers  <philippe.waroquiers@skynet.be>
+
+	* gdb.texinfo (Help): Document the new -v apropos flag.
+	(Output Styling): Document the style name styling done by "show style".
+	Document the new title and highlight styles.
+
+2019-05-31  Philippe Waroquiers  <philippe.waroquiers@skynet.be>
+
+	* gdb.texinfo (Shell Commands): Document pipe command.
+	(Logging Output): Add a reference to pipe command.
+	(Convenience Variables): Document $_shell_exitcode and
+	$_shell_exitstatus.
+
+2019-05-29  Tom Tromey  <tromey@adacore.com>
+
+	* gdb.texinfo (Continuing and Stepping): Document new
+	commands.
+
+2019-05-22  Alan Hayward  <alan.hayward@arm.com>
+
+	* gdb.texinfo (Shell Commands): Add debugredirect.
+
+2019-05-22  Jan Vrany  <jan.vrany@fit.cvut.cz>
+
+	* gdb.texinfo: Minor formatting fixes.
+
+2019-01-28  Jan Vrany  <jan.vrany@fit.cvut.cz>
+
+	* gdb.texinfo (Miscellaneous GDB/MI Commands): Document new
+	MI command -complete.
+
+2019-05-14  Tom de Vries  <tdevries@suse.de>
+
+	* gdb.texinfo (Automatic symbol index cache): Add concept and command
+	index entries.
+
+2019-05-14  Tom de Vries  <tdevries@suse.de>
+
+	* gdb.texinfo (Maintenance Commands): Remove superfluous
+	quoting on command index entry for "maint info selftests".
+
+2019-05-10  Tom Tromey  <tromey@adacore.com>
+
+	* python.texi (Pretty Printing API): Mention lazy computation for
+	"children".
+
+2019-05-10  Tom Tromey  <tromey@adacore.com>
+
+	* gdb.texinfo (Set Catchpoints): Add text for parameter to "catch
+	exception" and "catch handlers".  Move "catch exception unhandled"
+	text.  Use @var for "catch load" and "catch unload"
+
+2019-05-08  Tom Tromey  <tromey@adacore.com>
+
+	* gdb.texinfo (Symbols): Document change to ptype/o.
+
 2019-05-03  Eli Zaretskii  <eliz@gnu.org>
 
 	* gdb.texinfo (Separate Debug Files): Document how the

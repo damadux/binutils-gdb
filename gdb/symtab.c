@@ -64,11 +64,11 @@
 #include "parser-defs.h"
 #include "completer.h"
 #include "progspace-and-thread.h"
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 #include "filename-seen-cache.h"
 #include "arch-utils.h"
 #include <algorithm>
-#include "common/pathstuff.h"
+#include "gdbsupport/pathstuff.h"
 
 /* Forward declarations for local functions.  */
 
@@ -92,29 +92,33 @@ struct block_symbol lookup_local_symbol (const char *name,
 					 enum language language);
 
 static struct block_symbol
-  lookup_symbol_in_objfile (struct objfile *objfile, int block_index,
+  lookup_symbol_in_objfile (struct objfile *objfile,
+			    enum block_enum block_index,
 			    const char *name, const domain_enum domain);
-
-/* Program space key for finding name and language of "main".  */
-
-static const struct program_space_data *main_progspace_key;
 
 /* Type of the data stored on the program space.  */
 
 struct main_info
 {
+  main_info () = default;
+
+  ~main_info ()
+  {
+    xfree (name_of_main);
+  }
+
   /* Name of "main".  */
 
-  char *name_of_main;
+  char *name_of_main = nullptr;
 
   /* Language of "main".  */
 
-  enum language language_of_main;
+  enum language language_of_main = language_unknown;
 };
 
-/* Program space key for finding its symbol cache.  */
+/* Program space key for finding name and language of "main".  */
 
-static const struct program_space_data *symbol_cache_key;
+static const program_space_key<main_info> main_progspace_key;
 
 /* The default symbol cache size.
    There is no extra cpu cost for large N (except when flushing the cache,
@@ -207,9 +211,21 @@ struct block_symbol_cache
 
 struct symbol_cache
 {
-  struct block_symbol_cache *global_symbols;
-  struct block_symbol_cache *static_symbols;
+  symbol_cache () = default;
+
+  ~symbol_cache ()
+  {
+    xfree (global_symbols);
+    xfree (static_symbols);
+  }
+
+  struct block_symbol_cache *global_symbols = nullptr;
+  struct block_symbol_cache *static_symbols = nullptr;
 };
+
+/* Program space key for finding its symbol cache.  */
+
+static const program_space_key<symbol_cache> symbol_cache_key;
 
 /* When non-zero, print debugging messages related to symtab creation.  */
 unsigned int symtab_create_debug = 0;
@@ -698,6 +714,7 @@ symbol_set_language (struct general_symbol_info *gsymbol,
 struct demangled_name_entry
 {
   const char *mangled;
+  ENUM_BITFIELD(language) language : LANGUAGE_BITS;
   char demangled[1];
 };
 
@@ -838,11 +855,6 @@ symbol_set_names (struct general_symbol_info *gsymbol,
   else
     linkage_name_copy = linkage_name;
 
-  /* Set the symbol language.  */
-  char *demangled_name_ptr
-    = symbol_find_demangled_name (gsymbol, linkage_name_copy);
-  gdb::unique_xmalloc_ptr<char> demangled_name (demangled_name_ptr);
-
   entry.mangled = linkage_name_copy;
   slot = ((struct demangled_name_entry **)
 	  htab_find_slot (per_bfd->demangled_names_hash.get (),
@@ -855,6 +867,9 @@ symbol_set_names (struct general_symbol_info *gsymbol,
       || (gsymbol->language == language_go
 	  && (*slot)->demangled[0] == '\0'))
     {
+      char *demangled_name_ptr
+	= symbol_find_demangled_name (gsymbol, linkage_name_copy);
+      gdb::unique_xmalloc_ptr<char> demangled_name (demangled_name_ptr);
       int demangled_len = demangled_name ? strlen (demangled_name.get ()) : 0;
 
       /* Suppose we have demangled_name==NULL, copy_name==0, and
@@ -891,12 +906,16 @@ symbol_set_names (struct general_symbol_info *gsymbol,
 	  strcpy (mangled_ptr, linkage_name_copy);
 	  (*slot)->mangled = mangled_ptr;
 	}
+      (*slot)->language = gsymbol->language;
 
       if (demangled_name != NULL)
-	strcpy ((*slot)->demangled, demangled_name.get());
+	strcpy ((*slot)->demangled, demangled_name.get ());
       else
 	(*slot)->demangled[0] = '\0';
     }
+  else if (gsymbol->language == language_unknown
+	   || gsymbol->language == language_auto)
+    gsymbol->language = (*slot)->language;
 
   gsymbol->name = (*slot)->mangled;
   if ((*slot)->demangled[0] != '\0')
@@ -1219,55 +1238,21 @@ resize_symbol_cache (struct symbol_cache *cache, unsigned int new_size)
     }
 }
 
-/* Make a symbol cache of size SIZE.  */
-
-static struct symbol_cache *
-make_symbol_cache (unsigned int size)
-{
-  struct symbol_cache *cache;
-
-  cache = XCNEW (struct symbol_cache);
-  resize_symbol_cache (cache, symbol_cache_size);
-  return cache;
-}
-
-/* Free the space used by CACHE.  */
-
-static void
-free_symbol_cache (struct symbol_cache *cache)
-{
-  xfree (cache->global_symbols);
-  xfree (cache->static_symbols);
-  xfree (cache);
-}
-
 /* Return the symbol cache of PSPACE.
    Create one if it doesn't exist yet.  */
 
 static struct symbol_cache *
 get_symbol_cache (struct program_space *pspace)
 {
-  struct symbol_cache *cache
-    = (struct symbol_cache *) program_space_data (pspace, symbol_cache_key);
+  struct symbol_cache *cache = symbol_cache_key.get (pspace);
 
   if (cache == NULL)
     {
-      cache = make_symbol_cache (symbol_cache_size);
-      set_program_space_data (pspace, symbol_cache_key, cache);
+      cache = symbol_cache_key.emplace (pspace);
+      resize_symbol_cache (cache, symbol_cache_size);
     }
 
   return cache;
-}
-
-/* Delete the symbol cache of PSPACE.
-   Called when PSPACE is destroyed.  */
-
-static void
-symbol_cache_cleanup (struct program_space *pspace, void *data)
-{
-  struct symbol_cache *cache = (struct symbol_cache *) data;
-
-  free_symbol_cache (cache);
 }
 
 /* Set the size of the symbol cache in all program spaces.  */
@@ -1279,8 +1264,7 @@ set_symbol_cache_size (unsigned int new_size)
 
   ALL_PSPACES (pspace)
     {
-      struct symbol_cache *cache
-	= (struct symbol_cache *) program_space_data (pspace, symbol_cache_key);
+      struct symbol_cache *cache = symbol_cache_key.get (pspace);
 
       /* The pspace could have been created but not have a cache yet.  */
       if (cache != NULL)
@@ -1436,8 +1420,7 @@ symbol_cache_mark_not_found (struct block_symbol_cache *bsc,
 static void
 symbol_cache_flush (struct program_space *pspace)
 {
-  struct symbol_cache *cache
-    = (struct symbol_cache *) program_space_data (pspace, symbol_cache_key);
+  struct symbol_cache *cache = symbol_cache_key.get (pspace);
   int pass;
 
   if (cache == NULL)
@@ -1551,8 +1534,7 @@ maintenance_print_symbol_cache (const char *args, int from_tty)
 		       : "(no object file)");
 
       /* If the cache hasn't been created yet, avoid creating one.  */
-      cache
-	= (struct symbol_cache *) program_space_data (pspace, symbol_cache_key);
+      cache = symbol_cache_key.get (pspace);
       if (cache == NULL)
 	printf_filtered ("  <empty>\n");
       else
@@ -1623,8 +1605,7 @@ maintenance_print_symbol_cache_statistics (const char *args, int from_tty)
 		       : "(no object file)");
 
       /* If the cache hasn't been created yet, avoid creating one.  */
-      cache
-	= (struct symbol_cache *) program_space_data (pspace, symbol_cache_key);
+      cache = symbol_cache_key.get (pspace);
       if (cache == NULL)
  	printf_filtered ("  empty, no stats available\n");
       else
@@ -2264,8 +2245,9 @@ lookup_global_symbol_from_objfile (struct objfile *main_objfile,
    static symbols.  */
 
 static struct block_symbol
-lookup_symbol_in_objfile_symtabs (struct objfile *objfile, int block_index,
-				  const char *name, const domain_enum domain)
+lookup_symbol_in_objfile_symtabs (struct objfile *objfile,
+				  enum block_enum block_index, const char *name,
+				  const domain_enum domain)
 {
   gdb_assert (block_index == GLOBAL_BLOCK || block_index == STATIC_BLOCK);
 
@@ -2536,10 +2518,12 @@ lookup_symbol_in_static_block (const char *name,
    BLOCK_INDEX is one of GLOBAL_BLOCK or STATIC_BLOCK.  */
 
 static struct block_symbol
-lookup_symbol_in_objfile (struct objfile *objfile, int block_index,
+lookup_symbol_in_objfile (struct objfile *objfile, enum block_enum block_index,
 			  const char *name, const domain_enum domain)
 {
   struct block_symbol result;
+
+  gdb_assert (block_index == GLOBAL_BLOCK || block_index == STATIC_BLOCK);
 
   if (symbol_lookup_debug)
     {
@@ -3693,8 +3677,10 @@ skip_prologue_using_lineinfo (CORE_ADDR func_addr, struct symtab *symtab)
 
 /* Adjust SAL to the first instruction past the function prologue.
    If the PC was explicitly specified, the SAL is not changed.
-   If the line number was explicitly specified, at most the SAL's PC
-   is updated.  If SAL is already past the prologue, then do nothing.  */
+   If the line number was explicitly specified then the SAL can still be
+   updated, unless the language for SAL is assembler, in which case the SAL
+   will be left unchanged.
+   If SAL is already past the prologue, then do nothing.  */
 
 void
 skip_prologue_sal (struct symtab_and_line *sal)
@@ -3711,6 +3697,15 @@ skip_prologue_sal (struct symtab_and_line *sal)
 
   /* Do not change the SAL if PC was specified explicitly.  */
   if (sal->explicit_pc)
+    return;
+
+  /* In assembly code, if the user asks for a specific line then we should
+     not adjust the SAL.  The user already has instruction level
+     visibility in this case, so selecting a line other than one requested
+     is likely to be the wrong choice.  */
+  if (sal->symtab != nullptr
+      && sal->explicit_line
+      && SYMTAB_LANGUAGE (sal->symtab) == language_asm)
     return;
 
   scoped_restore_current_pspace_and_thread restore_pspace_thread;
@@ -3832,12 +3827,6 @@ skip_prologue_sal (struct symtab_and_line *sal)
 
   sal->pc = pc;
   sal->section = section;
-
-  /* Unless the explicit_line flag was set, update the SAL line
-     and symtab to correspond to the modified PC location.  */
-  if (sal->explicit_line)
-    return;
-
   sal->symtab = start_sal.symtab;
   sal->line = start_sal.line;
   sal->end = start_sal.end;
@@ -4354,13 +4343,13 @@ search_symbols (const char *regexp, enum search_domain kind,
   struct symbol *sym;
   int found_misc = 0;
   static const enum minimal_symbol_type types[]
-    = {mst_data, mst_text, mst_abs};
+    = {mst_data, mst_text, mst_unknown};
   static const enum minimal_symbol_type types2[]
-    = {mst_bss, mst_file_text, mst_abs};
+    = {mst_bss, mst_file_text, mst_unknown};
   static const enum minimal_symbol_type types3[]
-    = {mst_file_data, mst_solib_trampoline, mst_abs};
+    = {mst_file_data, mst_solib_trampoline, mst_unknown};
   static const enum minimal_symbol_type types4[]
-    = {mst_file_bss, mst_text_gnu_ifunc, mst_abs};
+    = {mst_file_bss, mst_text_gnu_ifunc, mst_unknown};
   enum minimal_symbol_type ourtype;
   enum minimal_symbol_type ourtype2;
   enum minimal_symbol_type ourtype3;
@@ -4643,7 +4632,23 @@ print_symbol_info (enum search_domain kind,
   /* Typedef that is not a C++ class.  */
   if (kind == TYPES_DOMAIN
       && SYMBOL_DOMAIN (sym) != STRUCT_DOMAIN)
-    typedef_print (SYMBOL_TYPE (sym), sym, gdb_stdout);
+    {
+      /* FIXME: For C (and C++) we end up with a difference in output here
+	 between how a typedef is printed, and non-typedefs are printed.
+	 The TYPEDEF_PRINT code places a ";" at the end in an attempt to
+	 appear C-like, while TYPE_PRINT doesn't.
+
+	 For the struct printing case below, things are worse, we force
+	 printing of the ";" in this function, which is going to be wrong
+	 for languages that don't require a ";" between statements.  */
+      if (TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_TYPEDEF)
+	typedef_print (SYMBOL_TYPE (sym), sym, gdb_stdout);
+      else
+	{
+	  type_print (SYMBOL_TYPE (sym), "", gdb_stdout, -1);
+	  printf_filtered ("\n");
+	}
+    }
   /* variable, func, or typedef-that-is-c++-class.  */
   else if (kind < TYPES_DOMAIN
 	   || (kind == TYPES_DOMAIN
@@ -4702,6 +4707,9 @@ symtab_symbol_info (bool quiet,
 
   gdb_assert (kind <= TYPES_DOMAIN);
 
+  if (regexp != nullptr && *regexp == '\0')
+    regexp = nullptr;
+
   /* Must make sure that if we're interrupted, symbols gets freed.  */
   std::vector<symbol_search> symbols = search_symbols (regexp, kind,
 						       t_regexp, 0, NULL);
@@ -4757,54 +4765,86 @@ symtab_symbol_info (bool quiet,
     }
 }
 
+/* Implement the 'info variables' command.  */
+
 static void
 info_variables_command (const char *args, int from_tty)
 {
-  std::string regexp;
-  std::string t_regexp;
-  bool quiet = false;
+  info_print_options opts;
+  extract_info_print_options (&opts, &args);
 
-  while (args != NULL
-	 && extract_info_print_args (&args, &quiet, &regexp, &t_regexp))
-    ;
-
-  if (args != NULL)
-    report_unrecognized_option_error ("info variables", args);
-
-  symtab_symbol_info (quiet,
-		      regexp.empty () ? NULL : regexp.c_str (),
-		      VARIABLES_DOMAIN,
-		      t_regexp.empty () ? NULL : t_regexp.c_str (),
-		      from_tty);
+  symtab_symbol_info (opts.quiet, args, VARIABLES_DOMAIN,
+		      opts.type_regexp, from_tty);
 }
 
+/* Implement the 'info functions' command.  */
 
 static void
 info_functions_command (const char *args, int from_tty)
 {
-  std::string regexp;
-  std::string t_regexp;
-  bool quiet = false;
+  info_print_options opts;
+  extract_info_print_options (&opts, &args);
 
-  while (args != NULL
-	 && extract_info_print_args (&args, &quiet, &regexp, &t_regexp))
-    ;
-
-  if (args != NULL)
-    report_unrecognized_option_error ("info functions", args);
-
-  symtab_symbol_info (quiet,
-		      regexp.empty () ? NULL : regexp.c_str (),
-		      FUNCTIONS_DOMAIN,
-		      t_regexp.empty () ? NULL : t_regexp.c_str (),
-		      from_tty);
+  symtab_symbol_info (opts.quiet, args, FUNCTIONS_DOMAIN,
+		      opts.type_regexp, from_tty);
 }
 
+/* Holds the -q option for the 'info types' command.  */
+
+struct info_types_options
+{
+  int quiet = false;
+};
+
+/* The options used by the 'info types' command.  */
+
+static const gdb::option::option_def info_types_options_defs[] = {
+  gdb::option::boolean_option_def<info_types_options> {
+    "q",
+    [] (info_types_options *opt) { return &opt->quiet; },
+    nullptr, /* show_cmd_cb */
+    nullptr /* set_doc */
+  }
+};
+
+/* Returns the option group used by 'info types'.  */
+
+static gdb::option::option_def_group
+make_info_types_options_def_group (info_types_options *opts)
+{
+  return {{info_types_options_defs}, opts};
+}
+
+/* Implement the 'info types' command.  */
 
 static void
-info_types_command (const char *regexp, int from_tty)
+info_types_command (const char *args, int from_tty)
 {
-  symtab_symbol_info (false, regexp, TYPES_DOMAIN, NULL, from_tty);
+  info_types_options opts;
+
+  auto grp = make_info_types_options_def_group (&opts);
+  gdb::option::process_options
+    (&args, gdb::option::PROCESS_OPTIONS_UNKNOWN_IS_OPERAND, grp);
+  if (args != nullptr && *args == '\0')
+    args = nullptr;
+  symtab_symbol_info (opts.quiet, args, TYPES_DOMAIN, NULL, from_tty);
+}
+
+/* Command completer for 'info types' command.  */
+
+static void
+info_types_command_completer (struct cmd_list_element *ignore,
+			      completion_tracker &tracker,
+			      const char *text, const char * /* word */)
+{
+  const auto group
+    = make_info_types_options_def_group (nullptr);
+  if (gdb::option::complete_options
+      (tracker, &text, gdb::option::PROCESS_OPTIONS_UNKNOWN_IS_OPERAND, group))
+    return;
+
+  const char *word = advance_to_expression_complete_word_point (tracker, text);
+  symbol_completer (ignore, tracker, text, word);
 }
 
 /* Breakpoint all functions matching regular expression.  */
@@ -5665,9 +5705,7 @@ make_source_files_completion_list (const char *text, const char *word)
 static struct main_info *
 get_main_info (void)
 {
-  struct main_info *info
-    = (struct main_info *) program_space_data (current_program_space,
-					       main_progspace_key);
+  struct main_info *info = main_progspace_key.get (current_program_space);
 
   if (info == NULL)
     {
@@ -5677,26 +5715,10 @@ get_main_info (void)
 	 gdb returned "main" as the name even if no function named
 	 "main" was defined the program; and this approach lets us
 	 keep compatibility.  */
-      info = XCNEW (struct main_info);
-      info->language_of_main = language_unknown;
-      set_program_space_data (current_program_space, main_progspace_key,
-			      info);
+      info = main_progspace_key.emplace (current_program_space);
     }
 
   return info;
-}
-
-/* A cleanup to destroy a struct main_info when a progspace is
-   destroyed.  */
-
-static void
-main_info_cleanup (struct program_space *pspace, void *data)
-{
-  struct main_info *info = (struct main_info *) data;
-
-  if (info != NULL)
-    xfree (info->name_of_main);
-  xfree (info);
 }
 
 static void
@@ -5790,8 +5812,10 @@ find_main_name (void)
   set_main_name ("main", language_unknown);
 }
 
-char *
-main_name (void)
+/* See symtab.h.  */
+
+const char *
+main_name ()
 {
   struct main_info *info = get_main_info ();
 
@@ -6046,45 +6070,42 @@ symbol_set_symtab (struct symbol *symbol, struct symtab *symtab)
 void
 _initialize_symtab (void)
 {
+  cmd_list_element *c;
+
   initialize_ordinary_address_classes ();
 
-  main_progspace_key
-    = register_program_space_data_with_cleanup (NULL, main_info_cleanup);
-
-  symbol_cache_key
-    = register_program_space_data_with_cleanup (NULL, symbol_cache_cleanup);
-
-  add_info ("variables", info_variables_command,
-	    info_print_args_help (_("\
+  c = add_info ("variables", info_variables_command,
+		info_print_args_help (_("\
 All global and static variable names or those matching REGEXPs.\n\
 Usage: info variables [-q] [-t TYPEREGEXP] [NAMEREGEXP]\n\
 Prints the global and static variables.\n"),
 				  _("global and static variables")));
+  set_cmd_completer_handle_brkchars (c, info_print_command_completer);
   if (dbx_commands)
-    add_com ("whereis", class_info, info_variables_command,
-	     info_print_args_help (_("\
+    {
+      c = add_com ("whereis", class_info, info_variables_command,
+		   info_print_args_help (_("\
 All global and static variable names, or those matching REGEXPs.\n\
 Usage: whereis [-q] [-t TYPEREGEXP] [NAMEREGEXP]\n\
 Prints the global and static variables.\n"),
 				   _("global and static variables")));
+      set_cmd_completer_handle_brkchars (c, info_print_command_completer);
+    }
 
-  add_info ("functions", info_functions_command,
-	    info_print_args_help (_("\
+  c = add_info ("functions", info_functions_command,
+		info_print_args_help (_("\
 All function names or those matching REGEXPs.\n\
 Usage: info functions [-q] [-t TYPEREGEXP] [NAMEREGEXP]\n\
 Prints the functions.\n"),
 				  _("functions")));
+  set_cmd_completer_handle_brkchars (c, info_print_command_completer);
 
-  /* FIXME:  This command has at least the following problems:
-     1.  It prints builtin types (in a very strange and confusing fashion).
-     2.  It doesn't print right, e.g. with
-     typedef struct foo *FOO
-     type_print prints "FOO" when we want to make it (in this situation)
-     print "struct foo *".
-     I also think "ptype" or "whatis" is more likely to be useful (but if
-     there is much disagreement "info types" can be fixed).  */
-  add_info ("types", info_types_command,
-	    _("All type names, or those matching REGEXP."));
+  c = add_info ("types", info_types_command, _("\
+All type names, or those matching REGEXP.\n\
+Usage: info types [-q] [REGEXP]\n\
+Print information about all types matching REGEXP, or all types if no\n\
+REGEXP is given.  The optional flag -q disables printing of headers."));
+  set_cmd_completer_handle_brkchars (c, info_types_command_completer);
 
   add_info ("sources", info_sources_command,
 	    _("Source files in the program."));

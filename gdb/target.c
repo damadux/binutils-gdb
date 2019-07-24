@@ -40,13 +40,13 @@
 #include "inline-frame.h"
 #include "tracepoint.h"
 #include "gdb/fileio.h"
-#include "common/agent.h"
+#include "gdbsupport/agent.h"
 #include "auxv.h"
 #include "target-debug.h"
 #include "top.h"
 #include "event-top.h"
 #include <algorithm>
-#include "common/byte-vector.h"
+#include "gdbsupport/byte-vector.h"
 #include "terminal.h"
 #include <unordered_map>
 
@@ -2175,7 +2175,7 @@ target_follow_fork (int follow_child, int detach_fork)
 /* Target wrapper for follow exec hook.  */
 
 void
-target_follow_exec (struct inferior *inf, char *execd_pathname)
+target_follow_exec (struct inferior *inf, const char *execd_pathname)
 {
   current_top_target ()->follow_exec (inf, execd_pathname);
 }
@@ -3106,7 +3106,7 @@ target_fileio_read_stralloc (struct inferior *inf, const char *filename)
     return gdb::unique_xmalloc_ptr<char> (nullptr);
 
   if (transferred == 0)
-    return gdb::unique_xmalloc_ptr<char> (xstrdup (""));
+    return make_unique_xstrdup ("");
 
   bufstr[transferred] = 0;
 
@@ -3793,9 +3793,9 @@ flash_erase_command (const char *cmd, int from_tty)
 	  ui_out_emit_tuple tuple_emitter (current_uiout, "erased-regions");
 
           current_uiout->message (_("Erasing flash memory region at address "));
-          current_uiout->field_fmt ("address", "%s", paddress (gdbarch, m.lo));
+          current_uiout->field_core_addr ("address", gdbarch, m.lo);
           current_uiout->message (", size = ");
-          current_uiout->field_fmt ("size", "%s", hex_string (m.hi - m.lo));
+          current_uiout->field_string ("size", hex_string (m.hi - m.lo));
           current_uiout->message ("\n");
         }
     }

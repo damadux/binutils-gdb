@@ -19,7 +19,7 @@
 
 #include "defs.h"
 #include <ctype.h>
-#include "common/gdb_wait.h"
+#include "gdbsupport/gdb_wait.h"
 #include "event-top.h"
 #include "gdbthread.h"
 #include "fnmatch.h"
@@ -65,14 +65,15 @@
 #include "gdb_usleep.h"
 #include "interps.h"
 #include "gdb_regex.h"
-#include "common/job-control.h"
-#include "common/selftest.h"
-#include "common/gdb_optional.h"
+#include "gdbsupport/job-control.h"
+#include "gdbsupport/selftest.h"
+#include "gdbsupport/gdb_optional.h"
 #include "cp-support.h"
 #include <algorithm>
-#include "common/pathstuff.h"
+#include "gdbsupport/pathstuff.h"
 #include "cli/cli-style.h"
-#include "common/scope-exit.h"
+#include "gdbsupport/scope-exit.h"
+#include "gdbarch.h"
 
 void (*deprecated_error_begin_hook) (void);
 
@@ -678,9 +679,6 @@ maybe_quit (void)
     quit ();
 
   quit_handler ();
-
-  if (deprecated_interactive_hook)
-    deprecated_interactive_hook ();
 }
 
 
@@ -1772,10 +1770,20 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
 	    {
 	      unsigned int save_chars = chars_printed;
 
+	      /* If we change the style, below, we'll want to reset it
+		 before continuing to print.  If there is no wrap
+		 column, then we'll only reset the style if the pager
+		 prompt is given; and to avoid emitting style
+		 sequences in the middle of a run of text, we track
+		 this as well.  */
+	      ui_file_style save_style;
+	      bool did_paginate = false;
+
 	      chars_printed = 0;
 	      lines_printed++;
 	      if (wrap_column)
 		{
+		  save_style = wrap_style;
 		  if (stream->can_emit_style_escape ())
 		    emit_style_escape (ui_file_style (), stream);
 		  /* If we aren't actually wrapping, don't output
@@ -1785,21 +1793,27 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
 		  fputc_unfiltered ('\n', stream);
 		}
 	      else
-		flush_wrap_buffer (stream);
+		{
+		  save_style = applied_style;
+		  flush_wrap_buffer (stream);
+		}
 
 	      /* Possible new page.  Note that
 		 PAGINATION_DISABLED_FOR_COMMAND might be set during
 		 this loop, so we must continue to check it here.  */
 	      if (lines_printed >= lines_per_page - 1
 		  && !pagination_disabled_for_command)
-		prompt_for_continue ();
+		{
+		  prompt_for_continue ();
+		  did_paginate = true;
+		}
 
 	      /* Now output indentation and wrapped string.  */
 	      if (wrap_column)
 		{
 		  fputs_unfiltered (wrap_indent, stream);
 		  if (stream->can_emit_style_escape ())
-		    emit_style_escape (wrap_style, stream);
+		    emit_style_escape (save_style, stream);
 		  /* FIXME, this strlen is what prevents wrap_indent from
 		     containing tabs.  However, if we recurse to print it
 		     and count its chars, we risk trouble if wrap_indent is
@@ -1810,6 +1824,8 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
 		    + (save_chars - wrap_column);
 		  wrap_column = 0;	/* And disable fancy wrap */
 		}
+	      else if (did_paginate && stream->can_emit_style_escape ())
+		emit_style_escape (save_style, stream);
 	    }
 	}
 
@@ -1849,6 +1865,42 @@ fputs_styled (const char *linebuffer, const ui_file_style &style,
       fputs_maybe_filtered (linebuffer, stream, 1);
       set_output_style (stream, ui_file_style ());
     }
+}
+
+/* See utils.h.  */
+
+void
+fputs_highlighted (const char *str, const compiled_regex &highlight,
+		   struct ui_file *stream)
+{
+  regmatch_t pmatch;
+
+  while (*str && highlight.exec (str, 1, &pmatch, 0) == 0)
+    {
+      size_t n_highlight = pmatch.rm_eo - pmatch.rm_so;
+
+      /* Output the part before pmatch with current style.  */
+      while (pmatch.rm_so > 0)
+	{
+	  fputc_filtered (*str, stream);
+	  pmatch.rm_so--;
+	  str++;
+	}
+
+      /* Output pmatch with the highlight style.  */
+      set_output_style (stream, highlight_style.style ());
+      while (n_highlight > 0)
+	{
+	  fputc_filtered (*str, stream);
+	  n_highlight--;
+	  str++;
+	}
+      set_output_style (stream, ui_file_style ());
+    }
+
+  /* Output the trailing part of STR not matching HIGHLIGHT.  */
+  if (*str)
+    fputs_filtered (str, stream);
 }
 
 int
@@ -2717,7 +2769,7 @@ subset_compare (const char *string_to_compare, const char *template_string)
 {
   int match;
 
-  if (template_string != (char *) NULL && string_to_compare != (char *) NULL
+  if (template_string != NULL && string_to_compare != NULL
       && strlen (string_to_compare) <= strlen (template_string))
     match =
       (startswith (template_string, string_to_compare));

@@ -23,7 +23,57 @@
 
 #include <ctype.h>
 
-static std::string extract_arg_maybe_quoted (const char **arg);
+/* See documentation in cli-utils.h.  */
+
+ULONGEST
+get_ulongest (const char **pp, int trailer)
+{
+  LONGEST retval = 0;	/* default */
+  const char *p = *pp;
+
+  if (*p == '$')
+    {
+      value *val = value_from_history_ref (p, &p);
+
+      if (val != NULL)	/* Value history reference */
+	{
+	  if (TYPE_CODE (value_type (val)) == TYPE_CODE_INT)
+	    retval = value_as_long (val);
+	  else
+	    error (_("History value must have integer type."));
+	}
+      else	/* Convenience variable */
+	{
+	  /* Internal variable.  Make a copy of the name, so we can
+	     null-terminate it to pass to lookup_internalvar().  */
+	  const char *start = ++p;
+	  while (isalnum (*p) || *p == '_')
+	    p++;
+	  std::string varname (start, p - start);
+	  if (!get_internalvar_integer (lookup_internalvar (varname.c_str ()),
+				       &retval))
+	    error (_("Convenience variable $%s does not have integer value."),
+		   varname.c_str ());
+	}
+    }
+  else
+    {
+      const char *end = p;
+      retval = strtoulst (p, &end, 0);
+      if (p == end)
+	{
+	  /* There is no number here.  (e.g. "cond a == b").  */
+	  error (_("Expected integer at: %s"), p);
+	}
+      p = end;
+    }
+
+  if (!(isspace (*p) || *p == '\0' || *p == trailer))
+    error (_("Trailing junk at: %s"), p);
+  p = skip_spaces (p);
+  *pp = p;
+  return retval;
+}
 
 /* See documentation in cli-utils.h.  */
 
@@ -130,40 +180,6 @@ get_number (char **pp)
 
 /* See documentation in cli-utils.h.  */
 
-bool
-extract_info_print_args (const char **args,
-			 bool *quiet,
-			 std::string *regexp,
-			 std::string *t_regexp)
-{
-  /* Check for NAMEREGEXP or -- NAMEREGEXP.  */
-  if (**args != '-' || check_for_argument (args, "--", 2))
-    {
-      *args = skip_spaces (*args);
-      *regexp = *args;
-      *args = NULL;
-      return true;
-    }
-
-  if (check_for_argument (args, "-t", 2))
-    {
-      *t_regexp = extract_arg_maybe_quoted (args);
-      *args = skip_spaces (*args);
-      return true;
-    }
-
-  if (check_for_argument (args, "-q", 2))
-    {
-      *quiet = true;
-      *args = skip_spaces (*args);
-      return true;
-    }
-
-  return false;
-}
-
-/* See documentation in cli-utils.h.  */
-
 void
 report_unrecognized_option_error (const char *command, const char *args)
 {
@@ -235,10 +251,18 @@ number_or_range_parser::get_number ()
       /* Default case: state->m_cur_tok is pointing either to a solo
 	 number, or to the first number of a range.  */
       m_last_retval = get_number_trailer (&m_cur_tok, '-');
-      /* If get_number_trailer has found a -, it might be the start
-	 of a command option.  So, do not parse a range if the - is
-	 followed by an alpha.  */
-      if (*m_cur_tok == '-' && !isalpha (*(m_cur_tok + 1)))
+      /* If get_number_trailer has found a '-' preceded by a space, it
+	 might be the start of a command option.  So, do not parse a
+	 range if the '-' is followed by an alpha or another '-'.  We
+	 might also be completing something like
+	 "frame apply level 0 -" and we prefer treating that "-" as an
+	 option rather than an incomplete range, so check for end of
+	 string as well.  */
+      if (m_cur_tok[0] == '-'
+	  && !(isspace (m_cur_tok[-1])
+	       && (isalpha (m_cur_tok[1])
+		   || m_cur_tok[1] == '-'
+		   || m_cur_tok[1] == '\0')))
 	{
 	  const char **temp;
 
@@ -349,69 +373,6 @@ remove_trailing_whitespace (const char *start, const char *s)
   return s;
 }
 
-/* A helper function to extract an argument from *ARG.  An argument is
-   delimited by whitespace, but it can also be optionally quoted.
-   The quoting and special characters are handled similarly to
-   the parsing done by gdb_argv.
-   The return value is empty if no argument was found.  */
-
-static std::string
-extract_arg_maybe_quoted (const char **arg)
-{
-  bool squote = false;
-  bool dquote = false;
-  bool bsquote = false;
-  std::string result;
-  const char *p = *arg;
-
-  /* Find the start of the argument.  */
-  p = skip_spaces (p);
-
-  /* Parse p similarly to gdb_argv buildargv function.  */
-  while (*p != '\0')
-    {
-      if (isspace (*p) && !squote && !dquote && !bsquote)
-	  break;
-      else
-	{
-	  if (bsquote)
-	    {
-	      bsquote = false;
-	      result += *p;
-	    }
-	  else if (*p == '\\')
-	      bsquote = true;
-	  else if (squote)
-	    {
-	      if (*p == '\'')
-		  squote = false;
-	      else
-		  result += *p;
-	    }
-	  else if (dquote)
-	    {
-	      if (*p == '"')
-		  dquote = false;
-	      else
-		  result += *p;
-	    }
-	  else
-	    {
-	      if (*p == '\'')
-		  squote = true;
-	      else if (*p == '"')
-		  dquote = true;
-	      else
-		  result += *p;
-	    }
-	  p++;
-	}
-    }
-
-  *arg = p;
-  return result;
-}
-
 /* See documentation in cli-utils.h.  */
 
 std::string
@@ -459,6 +420,7 @@ check_for_argument (const char **str, const char *arg, int arg_len)
       && ((*str)[arg_len] == '\0' || isspace ((*str)[arg_len])))
     {
       *str += arg_len;
+      *str = skip_spaces (*str);
       return 1;
     }
   return 0;
@@ -466,57 +428,65 @@ check_for_argument (const char **str, const char *arg, int arg_len)
 
 /* See documentation in cli-utils.h.  */
 
-int
-parse_flags (const char **str, const char *flags)
+void
+validate_flags_qcs (const char *which_command, qcs_flags *flags)
 {
-  const char *p = skip_spaces (*str);
+  if (flags->cont && flags->silent)
+    error (_("%s: -c and -s are mutually exclusive"), which_command);
+}
 
-  if (p[0] == '-'
-      && isalpha (p[1])
-      && (p[2] == '\0' || isspace (p[2])))
-    {
-      const char pf = p[1];
-      const char *f = flags;
+/* The options used by the 'info variables' commands and similar.  */
 
-      while (*f != '\0')
-	{
-	  if (*f == pf)
-	    {
-	      *str = skip_spaces (p + 2);
-	      return f - flags + 1;
-	    }
-	  f++;
-	}
-    }
+static const gdb::option::option_def info_print_options_defs[] = {
+  gdb::option::boolean_option_def<info_print_options> {
+    "q",
+    [] (info_print_options *opt) { return &opt->quiet; },
+    nullptr, /* show_cmd_cb */
+    nullptr /* set_doc */
+  },
 
-  return 0;
+  gdb::option::string_option_def<info_print_options> {
+    "t",
+    [] (info_print_options *opt) { return &opt->type_regexp; },
+    nullptr, /* show_cmd_cb */
+    nullptr /* set_doc */
+  }
+};
+
+/* Returns the option group used by 'info variables' and similar.  */
+
+static gdb::option::option_def_group
+make_info_print_options_def_group (info_print_options *opts)
+{
+  return {{info_print_options_defs}, opts};
 }
 
 /* See documentation in cli-utils.h.  */
 
-bool
-parse_flags_qcs (const char *which_command, const char **str,
-		 qcs_flags *flags)
+void
+extract_info_print_options (info_print_options *opts,
+			    const char **args)
 {
-  switch (parse_flags (str, "qcs"))
-    {
-    case 0:
-      return false;
-    case 1:
-      flags->quiet = true;
-      break;
-    case 2:
-      flags->cont = true;
-      break;
-    case 3:
-      flags->silent = true;
-      break;
-    default:
-      gdb_assert_not_reached ("int qcs flag out of bound");
-    }
+  auto grp = make_info_print_options_def_group (opts);
+  gdb::option::process_options
+    (args, gdb::option::PROCESS_OPTIONS_UNKNOWN_IS_OPERAND, grp);
+  if (*args != nullptr && **args == '\0')
+    *args = nullptr;
+}
 
-  if (flags->cont && flags->silent)
-    error (_("%s: -c and -s are mutually exclusive"), which_command);
+/* See documentation in cli-utils.h.  */
 
-  return true;
+void
+info_print_command_completer (struct cmd_list_element *ignore,
+			      completion_tracker &tracker,
+			      const char *text, const char * /* word */)
+{
+  const auto group
+    = make_info_print_options_def_group (nullptr);
+  if (gdb::option::complete_options
+      (tracker, &text, gdb::option::PROCESS_OPTIONS_UNKNOWN_IS_OPERAND, group))
+    return;
+
+  const char *word = advance_to_expression_complete_word_point (tracker, text);
+  symbol_completer (ignore, tracker, text, word);
 }

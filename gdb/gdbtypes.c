@@ -914,6 +914,11 @@ create_range_type (struct type *result_type, struct type *index_type,
 		   const struct dynamic_prop *low_bound,
 		   const struct dynamic_prop *high_bound)
 {
+  /* The INDEX_TYPE should be a type capable of holding the upper and lower
+     bounds, as such a zero sized, or void type makes no sense.  */
+  gdb_assert (TYPE_CODE (index_type) != TYPE_CODE_VOID);
+  gdb_assert (TYPE_LENGTH (index_type) > 0);
+
   if (result_type == NULL)
     result_type = alloc_type_copy (index_type);
   TYPE_CODE (result_type) = TYPE_CODE_RANGE;
@@ -2065,10 +2070,7 @@ resolve_dynamic_array (struct type *type,
   prop = get_dyn_prop (DYN_PROP_BYTE_STRIDE, type);
   if (prop != NULL)
     {
-      int prop_eval_ok
-	= dwarf2_evaluate_property (prop, NULL, addr_stack, &value);
-
-      if (prop_eval_ok)
+      if (dwarf2_evaluate_property (prop, NULL, addr_stack, &value))
 	{
 	  remove_dyn_prop (DYN_PROP_BYTE_STRIDE, type);
 	  bit_stride = (unsigned int) (value * 8);
@@ -5359,6 +5361,9 @@ gdbtypes_post_init (struct gdbarch *gdbarch)
   builtin_type->builtin_unsigned_long_long
     = arch_integer_type (gdbarch, gdbarch_long_long_bit (gdbarch),
 			 1, "unsigned long long");
+  builtin_type->builtin_half
+    = arch_float_type (gdbarch, gdbarch_half_bit (gdbarch),
+		       "half", gdbarch_half_format (gdbarch));
   builtin_type->builtin_float
     = arch_float_type (gdbarch, gdbarch_float_bit (gdbarch),
 		       "float", gdbarch_float_format (gdbarch));
@@ -5458,14 +5463,15 @@ gdbtypes_post_init (struct gdbarch *gdbarch)
 /* This set of objfile-based types is intended to be used by symbol
    readers as basic types.  */
 
-static const struct objfile_data *objfile_type_data;
+static const struct objfile_key<struct objfile_type,
+				gdb::noop_deleter<struct objfile_type>>
+  objfile_type_data;
 
 const struct objfile_type *
 objfile_type (struct objfile *objfile)
 {
   struct gdbarch *gdbarch;
-  struct objfile_type *objfile_type
-    = (struct objfile_type *) objfile_data (objfile, objfile_type_data);
+  struct objfile_type *objfile_type = objfile_type_data.get (objfile);
 
   if (objfile_type)
     return objfile_type;
@@ -5570,7 +5576,7 @@ objfile_type (struct objfile *objfile)
     = init_integer_type (objfile, gdbarch_addr_bit (gdbarch), 1,
 			 "__CORE_ADDR");
 
-  set_objfile_data (objfile, objfile_type_data, objfile_type);
+  objfile_type_data.set (objfile, objfile_type);
   return objfile_type;
 }
 
@@ -5578,7 +5584,6 @@ void
 _initialize_gdbtypes (void)
 {
   gdbtypes_data = gdbarch_data_register_post_init (gdbtypes_post_init);
-  objfile_type_data = register_objfile_data ();
 
   add_setshow_zuinteger_cmd ("overload", no_class, &overload_debug,
 			     _("Set debugging of C++ overloading."),

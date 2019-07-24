@@ -20,6 +20,10 @@
 #ifndef CLI_CLI_UTILS_H
 #define CLI_CLI_UTILS_H
 
+#include "completer.h"
+
+struct cmd_list_element;
+
 /* *PP is a string denoting a number.  Get the number.  Advance *PP
    after the string and any trailing whitespace.
 
@@ -39,22 +43,41 @@ extern int get_number (const char **);
 
 extern int get_number (char **);
 
-/* Extract from ARGS the arguments [-q] [-t TYPEREGEXP] [--] NAMEREGEXP.
+/* Like get_number_trailer, but works with ULONGEST, and throws on
+   error instead of returning 0.  */
+extern ULONGEST get_ulongest (const char **pp, int trailer = '\0');
 
-   The caller is responsible to initialize *QUIET to false, *REGEXP
-   and *T_REGEXP to "".
-   extract_info_print_args can then be called iteratively to search
-   for valid arguments, as part of a 'main parsing loop' searching for
-   -q/-t/-- arguments together with other flags and options.
+/* Structure to hold the values of the options used by the 'info
+   variables' command and other similar commands.  These correspond to the
+   -q and -t options.  */
 
-   Returns true and updates *ARGS + one of *QUIET, *REGEXP, *T_REGEXP if
-   it finds a valid argument.
-   Returns false if no valid argument is found at the beginning of ARGS.  */
+struct info_print_options
+{
+  int quiet = false;
+  char *type_regexp = nullptr;
 
-extern bool extract_info_print_args (const char **args,
-				     bool *quiet,
-				     std::string *regexp,
-				     std::string *t_regexp);
+  ~info_print_options ()
+  {
+    xfree (type_regexp);
+  }
+};
+
+/* Extract options from ARGS for commands like 'info variables', placing
+   the options into OPTS.  ARGS is updated to point to the first character
+   after the options, or, if there is nothing after the options, then ARGS
+   is set to nullptr.  */
+
+extern void extract_info_print_options (info_print_options *opts,
+					const char **args);
+
+/* Function that can be used as a command completer for 'info variable'
+   and friends.  This offers command option completion as well as symbol
+   completion.  At the moment all symbols are offered for all commands.  */
+
+extern void info_print_command_completer (struct cmd_list_element *ignore,
+					  completion_tracker &tracker,
+					  const char *text,
+					  const char * /* word */);
 
 /* Throws an error telling the user that ARGS starts with an option
    unrecognized by COMMAND.  */
@@ -188,8 +211,18 @@ extern std::string extract_arg (const char **arg);
 /* A helper function that looks for an argument at the start of a
    string.  The argument must also either be at the end of the string,
    or be followed by whitespace.  Returns 1 if it finds the argument,
-   0 otherwise.  If the argument is found, it updates *STR.  */
+   0 otherwise.  If the argument is found, it updates *STR to point
+   past the argument and past any whitespace following the
+   argument.  */
 extern int check_for_argument (const char **str, const char *arg, int arg_len);
+
+/* Same as above, but ARG's length is computed.  */
+
+static inline int
+check_for_argument (const char **str, const char *arg)
+{
+  return check_for_argument (str, arg, strlen (arg));
+}
 
 /* Same, for non-const STR.  */
 
@@ -200,43 +233,25 @@ check_for_argument (char **str, const char *arg, int arg_len)
 			     arg, arg_len);
 }
 
-/* A helper function that looks for a set of flags at the start of a
-   string.  The possible flags are given as a null terminated string.
-   A flag in STR must either be at the end of the string,
-   or be followed by whitespace.
-   Returns 0 if no valid flag is found at the start of STR.
-   Otherwise updates *STR, and returns N (which is > 0),
-   such that FLAGS [N - 1] is the valid found flag.  */
-extern int parse_flags (const char **str, const char *flags);
+static inline int
+check_for_argument (char **str, const char *arg)
+{
+  return check_for_argument (str, arg, strlen (arg));
+}
 
-/* qcs_flags struct regroups the flags parsed by parse_flags_qcs.  */
+/* qcs_flags struct groups the -q, -c, and -s flags parsed by "thread
+   apply" and "frame apply" commands */
 
 struct qcs_flags
 {
-  bool quiet = false;
-  bool cont = false;
-  bool silent = false;
+  int quiet = false;
+  int cont = false;
+  int silent = false;
 };
 
-/* A helper function that uses parse_flags to handle the flags qcs :
-     A flag -q sets FLAGS->QUIET to true.
-     A flag -c sets FLAGS->CONT to true.
-     A flag -s sets FLAGS->SILENT to true.
-
-   The caller is responsible to initialize *FLAGS to false before the (first)
-   call to parse_flags_qcs.
-   parse_flags_qcs can then be called iteratively to search for more
-   valid flags, as part of a 'main parsing loop' searching for -q/-c/-s
-   flags together with other flags and options.
-
-   Returns true and updates *STR and one of FLAGS->QUIET, FLAGS->CONT,
-   FLAGS->SILENT if it finds a valid flag.
-   Returns false if no valid flag is found at the beginning of STR.
-
-   Throws an error if a flag is found such that both FLAGS->CONT and
-   FLAGS->SILENT are true.  */
-
-extern bool parse_flags_qcs (const char *which_command, const char **str,
-			     qcs_flags *flags);
+/* Validate FLAGS.  Throws an error if both FLAGS->CONT and
+   FLAGS->SILENT are true.  WHICH_COMMAND is included in the error
+   message.  */
+extern void validate_flags_qcs (const char *which_command, qcs_flags *flags);
 
 #endif /* CLI_CLI_UTILS_H */

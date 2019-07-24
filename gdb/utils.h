@@ -22,8 +22,11 @@
 #define UTILS_H
 
 #include "exceptions.h"
-#include "common/scoped_restore.h"
+#include "gdbsupport/scoped_restore.h"
 #include <chrono>
+
+struct completion_match_for_lcd;
+class compiled_regex;
 
 extern void initialize_utils (void);
 
@@ -435,6 +438,12 @@ extern void fprintf_styled (struct ui_file *stream,
 extern void fputs_styled (const char *linebuffer,
 			  const ui_file_style &style,
 			  struct ui_file *stream);
+
+/* Like fputs_styled, but uses highlight_style to highlight the
+   parts of STR that match HIGHLIGHT.  */
+
+extern void fputs_highlighted (const char *str, const compiled_regex &highlight,
+			       struct ui_file *stream);
 
 /* Reset the terminal style to the default, if needed.  */
 

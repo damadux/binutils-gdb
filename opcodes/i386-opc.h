@@ -208,6 +208,8 @@ enum
   CpuAVX512_BITALG,
   /* Intel AVX-512 BF16 Instructions support required.  */
   CpuAVX512_BF16,
+  /* Intel AVX-512 VP2INTERSECT Instructions support required.  */
+  CpuAVX512_VP2INTERSECT,
   /* mwaitx instruction required */
   CpuMWAITX,
   /* Clzero instruction required */
@@ -239,6 +241,8 @@ enum
   CpuMOVDIRI,
   /* MOVDIRR64B instruction required */
   CpuMOVDIR64B,
+  /* ENQCMD instruction required */
+  CpuENQCMD,
   /* 64bit support required  */
   Cpu64,
   /* Not supported in the 64bit mode  */
@@ -350,6 +354,7 @@ typedef union i386_cpu_flags
       unsigned int cpuavx512_vnni:1;
       unsigned int cpuavx512_bitalg:1;
       unsigned int cpuavx512_bf16:1;
+      unsigned int cpuavx512_vp2intersect:1;
       unsigned int cpumwaitx:1;
       unsigned int cpuclzero:1;
       unsigned int cpuospke:1;
@@ -366,6 +371,7 @@ typedef union i386_cpu_flags
       unsigned int cpucldemote:1;
       unsigned int cpumovdiri:1;
       unsigned int cpumovdir64b:1;
+      unsigned int cpuenqcmd:1;
       unsigned int cpu64:1;
       unsigned int cpuno64:1;
 #ifdef CpuUnused
@@ -431,6 +437,11 @@ enum
   FWait,
   /* quick test for string instructions */
   IsString,
+  /* RegMem is for instructions with a modrm byte where the register
+     destination operand should be encoded in the mod and regmem fields.
+     Normally, it will be encoded in the reg field. We add a RegMem
+     flag to indicate that it should be encoded in the regmem field.  */
+  RegMem,
   /* quick test if branch instruction is MPX supported */
   BNDPrefixOk,
   /* quick test if NOTRACK prefix is supported */
@@ -615,7 +626,7 @@ enum
   /* Intel64.  */
   Intel64,
   /* The last bitfield in i386_opcode_modifier.  */
-  Opcode_Modifier_Max
+  Opcode_Modifier_Num
 };
 
 typedef struct i386_opcode_modifier
@@ -643,6 +654,7 @@ typedef struct i386_opcode_modifier
   unsigned int no_ldsuf:1;
   unsigned int fwait:1;
   unsigned int isstring:1;
+  unsigned int regmem:1;
   unsigned int bndprefixok:1;
   unsigned int notrackprefixok:1;
   unsigned int islockable:1;
@@ -700,10 +712,8 @@ enum
   Debug,
   /* Test register */
   Test,
-  /* 2 bit segment register */
-  SReg2,
-  /* 3 bit segment register */
-  SReg3,
+  /* Segment register */
+  SReg,
   /* 1 bit immediate */
   Imm1,
   /* 8 bit immediate */
@@ -747,14 +757,6 @@ enum
   JumpAbsolute,
   /* String insn operand with fixed es segment */
   EsSeg,
-  /* RegMem is for instructions with a modrm byte where the register
-     destination operand should be encoded in the mod and regmem fields.
-     Normally, it will be encoded in the reg field. We add a RegMem
-     flag to the destination register operand to indicate that it should
-     be encoded in the regmem field.  */
-  RegMem,
-  /* Memory.  */
-  Mem,
   /* BYTE size. */
   Byte,
   /* WORD size. 2 byte */
@@ -777,9 +779,6 @@ enum
   Unspecified,
   /* Any memory size.  */
   Anysize,
-
-  /* Vector 4 bit immediate.  */
-  Vec_Imm4,
 
   /* Bound register.  */
   RegBND,
@@ -808,8 +807,7 @@ typedef union i386_operand_type
       unsigned int control:1;
       unsigned int debug:1;
       unsigned int test:1;
-      unsigned int sreg2:1;
-      unsigned int sreg3:1;
+      unsigned int sreg:1;
       unsigned int imm1:1;
       unsigned int imm8:1;
       unsigned int imm8s:1;
@@ -828,7 +826,6 @@ typedef union i386_operand_type
       unsigned int shiftcount:1;
       unsigned int jumpabsolute:1;
       unsigned int esseg:1;
-      unsigned int regmem:1;
       unsigned int byte:1;
       unsigned int word:1;
       unsigned int dword:1;
@@ -840,7 +837,6 @@ typedef union i386_operand_type
       unsigned int zmmword:1;
       unsigned int unspecified:1;
       unsigned int anysize:1;
-      unsigned int vec_imm4:1;
       unsigned int regbnd:1;
 #ifdef OTUnused
       unsigned int unused:(OTNumOfBits - OTUnused);

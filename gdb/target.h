@@ -42,7 +42,7 @@ struct inferior;
 
 #include "infrun.h" /* For enum exec_direction_kind.  */
 #include "breakpoint.h" /* For enum bptype.  */
-#include "common/scoped_restore.h"
+#include "gdbsupport/scoped_restore.h"
 
 /* This include file defines the interface between the main part
    of the debugger, and the part which is target-specific, or
@@ -74,15 +74,15 @@ struct inferior;
 #include "bfd.h"
 #include "symtab.h"
 #include "memattr.h"
-#include "common/vec.h"
-#include "common/gdb_signals.h"
+#include "gdbsupport/vec.h"
+#include "gdbsupport/gdb_signals.h"
 #include "btrace.h"
 #include "record.h"
 #include "command.h"
 #include "disasm.h"
 #include "tracepoint.h"
 
-#include "common/break-common.h" /* For enum target_hw_bp_type.  */
+#include "gdbsupport/break-common.h" /* For enum target_hw_bp_type.  */
 
 enum strata
   {
@@ -622,7 +622,7 @@ struct target_ops
       TARGET_DEFAULT_RETURN (1);
     virtual int remove_exec_catchpoint (int)
       TARGET_DEFAULT_RETURN (1);
-    virtual void follow_exec (struct inferior *, char *)
+    virtual void follow_exec (struct inferior *, const char *)
       TARGET_DEFAULT_IGNORE ();
     virtual int set_syscall_catchpoint (int, bool, int,
 					gdb::array_view<const int>)
@@ -1637,7 +1637,7 @@ int target_follow_fork (int follow_child, int detach_fork);
 /* Handle the target-specific bookkeeping required when the inferior
    makes an exec call.  INF is the exec'd inferior.  */
 
-void target_follow_exec (struct inferior *inf, char *execd_pathname);
+void target_follow_exec (struct inferior *inf, const char *execd_pathname);
 
 /* On some targets, we can catch an inferior exec event when it
    occurs.  These functions insert/remove an already-created

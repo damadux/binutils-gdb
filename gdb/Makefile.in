@@ -224,13 +224,9 @@ CODESIGN_CERT = @CODESIGN_CERT@
 GDBFLAGS =
 
 # Helper code from gnulib.
-GNULIB_BUILDDIR = build-gnulib
+GNULIB_BUILDDIR = ../gnulib
 LIBGNU = $(GNULIB_BUILDDIR)/import/libgnu.a
-INCGNU = -I$(srcdir)/gnulib/import -I$(GNULIB_BUILDDIR)/import
-
-# Generated headers in the gnulib directory.  These must be listed
-# so that they are generated before other files are compiled.
-GNULIB_H = $(GNULIB_BUILDDIR)/import/string.h @GNULIB_STDINT_H@
+INCGNU = -I$(srcdir)/../gnulib/import -I$(GNULIB_BUILDDIR)/import
 
 #
 # CLI sub directory definitons
@@ -241,6 +237,7 @@ SUBDIR_CLI_SRCS = \
 	cli/cli-dump.c \
 	cli/cli-interp.c \
 	cli/cli-logging.c \
+	cli/cli-option.c \
 	cli/cli-script.c \
 	cli/cli-setshow.c \
 	cli/cli-style.c \
@@ -294,7 +291,6 @@ SUBDIR_TUI_SRCS = \
 	tui/tui-source.c \
 	tui/tui-stack.c \
 	tui/tui-win.c \
-	tui/tui-windata.c \
 	tui/tui-wingeneral.c \
 	tui/tui-winsource.c
 
@@ -533,7 +529,7 @@ CONFIG_INSTALL = @CONFIG_INSTALL@
 CONFIG_UNINSTALL = @CONFIG_UNINSTALL@
 HAVE_NATIVE_GCORE_TARGET = @HAVE_NATIVE_GCORE_TARGET@
 
-CONFIG_SRC_SUBDIR = arch cli mi common compile tui unittests guile python \
+CONFIG_SRC_SUBDIR = arch cli mi gdbsupport compile tui unittests guile python \
 	target nat
 CONFIG_DEP_SUBDIR = $(addsuffix /$(DEPDIR),$(CONFIG_SRC_SUBDIR))
 
@@ -669,7 +665,9 @@ ALL_64_TARGET_OBS = \
 
 # All other target-dependent objects files (used with --enable-targets=all).
 ALL_TARGET_OBS = \
+	aarch32-tdep.o \
 	arc-tdep.o \
+	arch/aarch32.o \
 	arch/arm.o \
 	arch/arm-get-next-pcs.o \
 	arch/arm-linux.o \
@@ -925,6 +923,7 @@ COMMON_SFILES = \
 	ada-varobj.c \
 	addrmap.c \
 	agent.c \
+	alloc.c \
 	annotate.c \
 	arch-utils.c \
 	auto-load.c \
@@ -951,35 +950,35 @@ COMMON_SFILES = \
 	cli-out.c \
 	coff-pe-read.c \
 	coffread.c \
-	common/agent.c \
-	common/btrace-common.c \
-	common/buffer.c \
-	common/cleanups.c \
-	common/common-debug.c \
-	common/common-exceptions.c \
-	common/common-regcache.c \
-	common/common-utils.c \
-	common/errors.c \
-	common/environ.c \
-	common/fileio.c \
-	common/filestuff.c \
-	common/format.c \
-	common/job-control.c \
-	common/gdb_tilde_expand.c \
-	common/gdb_vecs.c \
-	common/netstuff.c \
-	common/new-op.c \
-	common/pathstuff.c \
-	common/print-utils.c \
-	common/ptid.c \
-	common/rsp-low.c \
-	common/run-time-clock.c \
-	common/scoped_mmap.c \
-	common/signals.c \
-	common/signals-state-save-restore.c \
-	common/tdesc.c \
-	common/vec.c \
-	common/xml-utils.c \
+	gdbsupport/agent.c \
+	gdbsupport/btrace-common.c \
+	gdbsupport/buffer.c \
+	gdbsupport/cleanups.c \
+	gdbsupport/common-debug.c \
+	gdbsupport/common-exceptions.c \
+	gdbsupport/common-regcache.c \
+	gdbsupport/common-utils.c \
+	gdbsupport/errors.c \
+	gdbsupport/environ.c \
+	gdbsupport/fileio.c \
+	gdbsupport/filestuff.c \
+	gdbsupport/format.c \
+	gdbsupport/job-control.c \
+	gdbsupport/gdb_tilde_expand.c \
+	gdbsupport/gdb_vecs.c \
+	gdbsupport/netstuff.c \
+	gdbsupport/new-op.c \
+	gdbsupport/pathstuff.c \
+	gdbsupport/print-utils.c \
+	gdbsupport/ptid.c \
+	gdbsupport/rsp-low.c \
+	gdbsupport/run-time-clock.c \
+	gdbsupport/scoped_mmap.c \
+	gdbsupport/signals.c \
+	gdbsupport/signals-state-save-restore.c \
+	gdbsupport/tdesc.c \
+	gdbsupport/vec.c \
+	gdbsupport/xml-utils.c \
 	complaints.c \
 	completer.c \
 	continuations.c \
@@ -1063,6 +1062,8 @@ COMMON_SFILES = \
 	macrotab.c \
 	main.c \
 	maint.c \
+	maint-test-options.c \
+	maint-test-settings.c \
 	mdebugread.c \
 	mem-break.c \
 	memattr.c \
@@ -1185,6 +1186,7 @@ SFILES = \
 # right, it is probably easiest just to list .h files here directly.
 
 HFILES_NO_SRCDIR = \
+	aarch32-tdep.h \
 	aarch64-ravenscar-thread.h \
 	aarch64-tdep.h \
 	ada-lang.h \
@@ -1430,6 +1432,7 @@ HFILES_NO_SRCDIR = \
 	xml-syscall.h \
 	xml-tdesc.h \
 	xtensa-tdep.h \
+	arch/aarch32.h \
 	arch/aarch64.h \
 	arch/aarch64-insn.h \
 	arch/arm.h \
@@ -1443,45 +1446,45 @@ HFILES_NO_SRCDIR = \
 	cli/cli-setshow.h \
 	cli/cli-style.h \
 	cli/cli-utils.h \
-	common/buffer.h \
-	common/cleanups.h \
-	common/common-debug.h \
-	common/common-defs.h \
-	common/common-exceptions.h \
-	common/common-gdbthread.h \
-	common/common-regcache.h \
-	common/common-types.h \
-	common/common-utils.h \
-	common/job-control.h \
-	common/errors.h \
-	common/environ.h \
-	common/fileio.h \
-	common/format.h \
-	common/gdb_assert.h \
-	common/gdb_tilde_expand.h \
-	common/gdb_locale.h \
-	common/gdb_proc_service.h \
-	common/gdb_setjmp.h \
-	common/gdb_signals.h \
-	common/gdb_sys_time.h \
-	common/gdb_vecs.h \
-	common/gdb_wait.h \
-	common/common-inferior.h \
-	common/netstuff.h \
-	common/host-defs.h \
-	common/pathstuff.h \
-	common/print-utils.h \
-	common/ptid.h \
-	common/queue.h \
-	common/rsp-low.h \
-	common/run-time-clock.h \
-	common/signals-state-save-restore.h \
-	common/symbol.h \
-	common/tdesc.h \
-	common/vec.h \
-	common/version.h \
-	common/x86-xstate.h \
-	common/xml-utils.h \
+	gdbsupport/buffer.h \
+	gdbsupport/cleanups.h \
+	gdbsupport/common-debug.h \
+	gdbsupport/common-defs.h \
+	gdbsupport/common-exceptions.h \
+	gdbsupport/common-gdbthread.h \
+	gdbsupport/common-regcache.h \
+	gdbsupport/common-types.h \
+	gdbsupport/common-utils.h \
+	gdbsupport/job-control.h \
+	gdbsupport/errors.h \
+	gdbsupport/environ.h \
+	gdbsupport/fileio.h \
+	gdbsupport/format.h \
+	gdbsupport/gdb_assert.h \
+	gdbsupport/gdb_tilde_expand.h \
+	gdbsupport/gdb_locale.h \
+	gdbsupport/gdb_proc_service.h \
+	gdbsupport/gdb_setjmp.h \
+	gdbsupport/gdb_signals.h \
+	gdbsupport/gdb_sys_time.h \
+	gdbsupport/gdb_vecs.h \
+	gdbsupport/gdb_wait.h \
+	gdbsupport/common-inferior.h \
+	gdbsupport/netstuff.h \
+	gdbsupport/host-defs.h \
+	gdbsupport/pathstuff.h \
+	gdbsupport/print-utils.h \
+	gdbsupport/ptid.h \
+	gdbsupport/queue.h \
+	gdbsupport/rsp-low.h \
+	gdbsupport/run-time-clock.h \
+	gdbsupport/signals-state-save-restore.h \
+	gdbsupport/symbol.h \
+	gdbsupport/tdesc.h \
+	gdbsupport/vec.h \
+	gdbsupport/version.h \
+	gdbsupport/x86-xstate.h \
+	gdbsupport/xml-utils.h \
 	compile/compile.h \
 	compile/compile-c.h \
 	compile/compile-cplus.h \
@@ -1496,14 +1499,6 @@ HFILES_NO_SRCDIR = \
 	config/djgpp/nl_types.h \
 	config/i386/nm-i386gnu.h \
 	config/sparc/nm-sol2.h \
-	gnulib/import/inttypes.in.h \
-	gnulib/import/stddef.in.h \
-	gnulib/import/stdint.in.h \
-	gnulib/import/str-two-way.h \
-	gnulib/import/string.in.h \
-	gnulib/import/extra/snippet/arg-nonnull.h \
-	gnulib/import/extra/snippet/c++defs.h \
-	gnulib/import/extra/snippet/warn-on-use.h \
 	mi/mi-cmds.h \
 	mi/mi-common.h \
 	mi/mi-console.h \
@@ -1589,14 +1584,14 @@ COMMON_OBS = $(DEPFILES) $(CONFIG_OBS) $(YYOBJ) \
 	$(SUBDIR_TARGET_OBS) \
 	$(SUBDIR_GCC_COMPILE_OBS)
 
-SUBDIRS = doc @subdirs@ data-directory $(GNULIB_BUILDDIR)
+SUBDIRS = doc @subdirs@ data-directory
 CLEANDIRS = $(SUBDIRS)
 
 # List of subdirectories in the build tree that must exist.
 # This is used to force build failures in existing trees when
 # a new directory is added.
 # The format here is for the `case' shell command.
-REQUIRED_SUBDIRS = doc | testsuite | $(GNULIB_BUILDDIR) | data-directory
+REQUIRED_SUBDIRS = doc | testsuite | data-directory
 
 # Parser intermediate files.
 YYFILES = \
@@ -1626,7 +1621,6 @@ generated_files = \
 	config.h \
 	gcore \
 	jit-reader.h \
-	$(GNULIB_H) \
 	$(NAT_GENERATED_FILES)
 
 # Flags needed to compile Python code
@@ -1898,12 +1892,6 @@ ifneq ($(CODESIGN_CERT),)
 endif
 
 # Convenience rule to handle recursion.
-$(LIBGNU) $(GNULIB_H): all-lib
-all-lib: $(GNULIB_BUILDDIR)/Makefile
-	@$(MAKE) $(FLAGS_TO_PASS) DO=all DODIRS=$(GNULIB_BUILDDIR) subdir_do
-.PHONY: all-lib
-
-# Convenience rule to handle recursion.
 .PHONY: all-data-directory
 all-data-directory: data-directory/Makefile
 	@$(MAKE) $(FLAGS_TO_PASS) DO=all DODIRS=data-directory subdir_do
@@ -1959,7 +1947,6 @@ clean mostlyclean: $(CONFIG_CLEAN)
 # always included in SUBDIRS.  Remove the gdbserver files explicitly.
 distclean: clean
 	@$(MAKE) $(FLAGS_TO_PASS) DO=distclean "DODIRS=$(CLEANDIRS)" subdir_do
-	rm -rf $(GNULIB_BUILDDIR)
 	rm -f gdbserver/config.status gdbserver/config.log
 	rm -f gdbserver/tm.h gdbserver/xm.h gdbserver/nm.h
 	rm -f gdbserver/Makefile gdbserver/config.cache
@@ -2015,13 +2002,6 @@ Makefile: Makefile.in config.status
 	CONFIG_FILES="Makefile" \
 	  CONFIG_COMMANDS= \
 	  CONFIG_HEADERS= \
-	  $(SHELL) config.status
-
-$(GNULIB_BUILDDIR)/Makefile: gnulib/Makefile.in config.status
-	@cd $(GNULIB_BUILDDIR); CONFIG_FILES="Makefile" \
-	  CONFIG_COMMANDS="depfiles" \
-	  CONFIG_HEADERS= \
-	  CONFIG_LINKS= \
 	  $(SHELL) config.status
 
 data-directory/Makefile: data-directory/Makefile.in config.status
@@ -2133,8 +2113,8 @@ $(srcdir)/copying.c: @MAINTAINER_MODE_TRUE@ $(srcdir)/../COPYING3 $(srcdir)/copy
 version.c: stamp-version; @true
 # Note that the obvious names for the temp file are taken by
 # create-version.sh.
-stamp-version: Makefile version.in $(srcdir)/../bfd/version.h $(srcdir)/common/create-version.sh
-	$(ECHO_GEN) $(SHELL) $(srcdir)/common/create-version.sh $(srcdir) \
+stamp-version: Makefile version.in $(srcdir)/../bfd/version.h $(srcdir)/gdbsupport/create-version.sh
+	$(ECHO_GEN) $(SHELL) $(srcdir)/gdbsupport/create-version.sh $(srcdir) \
 	    $(host_alias) $(target_alias) version-t.t
 	@$(SHELL) $(srcdir)/../move-if-change version-t.t version.c
 	@echo stamp > stamp-version
@@ -2157,6 +2137,7 @@ force_update:
 MAKEOVERRIDES =
 
 ALLDEPFILES = \
+	aarch32-tdep.c \
 	aarch64-fbsd-nat.c \
 	aarch64-fbsd-tdep.c \
 	aarch64-linux-nat.c \
@@ -2368,8 +2349,8 @@ ALLDEPFILES = \
 	xtensa-linux-tdep.c \
 	xtensa-tdep.c \
 	xtensa-xtregs.c \
-	common/mingw-strerror.c \
-	common/posix-strerror.c
+	gdbsupport/mingw-strerror.c \
+	gdbsupport/posix-strerror.c
 
 # Some files need explicit build rules (due to -Werror problems) or due
 # to sub-directory fun 'n' games.

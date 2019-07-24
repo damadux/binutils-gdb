@@ -69,6 +69,8 @@ extern bfd_boolean _bfd_mips_elf_finish_dynamic_sections
   (bfd *, struct bfd_link_info *);
 extern bfd_boolean _bfd_mips_elf_sort_relocs_p
   (asection *);
+extern void _bfd_mips_final_write_processing
+  (bfd *, bfd_boolean);
 extern void _bfd_mips_elf_final_write_processing
   (bfd *, bfd_boolean);
 extern int _bfd_mips_elf_additional_program_headers
@@ -150,6 +152,8 @@ extern void _bfd_mips_elf_use_plts_and_copy_relocs
   (struct bfd_link_info *);
 extern void _bfd_mips_elf_linker_flags
   (struct bfd_link_info *, bfd_boolean, bfd_boolean, bfd_boolean);
+extern void _bfd_mips_elf_compact_branches
+  (struct bfd_link_info *, bfd_boolean);
 extern bfd_boolean _bfd_mips_elf_init_stubs
   (struct bfd_link_info *,
    asection *(*) (const char *, asection *, asection *));

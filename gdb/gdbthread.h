@@ -27,12 +27,12 @@ struct symtab;
 #include "frame.h"
 #include "ui-out.h"
 #include "btrace.h"
-#include "common/vec.h"
+#include "gdbsupport/vec.h"
 #include "target/waitstatus.h"
 #include "cli/cli-utils.h"
-#include "common/refcounted-object.h"
-#include "common/common-gdbthread.h"
-#include "common/forward-scope-exit.h"
+#include "gdbsupport/refcounted-object.h"
+#include "gdbsupport/common-gdbthread.h"
+#include "gdbsupport/forward-scope-exit.h"
 
 struct inferior;
 
@@ -632,7 +632,8 @@ extern int print_thread_events;
    all attached PIDs are printed.  If both REQUESTED_THREADS is not
    NULL and PID is not -1, then the thread is printed if it belongs to
    the specified process.  Otherwise, an error is raised.  */
-extern void print_thread_info (struct ui_out *uiout, char *requested_threads,
+extern void print_thread_info (struct ui_out *uiout,
+			       const char *requested_threads,
 			       int pid);
 
 /* Save/restore current inferior/thread/frame.  */

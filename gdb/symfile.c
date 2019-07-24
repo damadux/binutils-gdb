@@ -56,11 +56,11 @@
 #include "stack.h"
 #include "gdb_bfd.h"
 #include "cli/cli-utils.h"
-#include "common/byte-vector.h"
-#include "common/pathstuff.h"
-#include "common/selftest.h"
+#include "gdbsupport/byte-vector.h"
+#include "gdbsupport/pathstuff.h"
+#include "gdbsupport/selftest.h"
 #include "cli/cli-style.h"
-#include "common/forward-scope-exit.h"
+#include "gdbsupport/forward-scope-exit.h"
 
 #include <sys/types.h>
 #include <fcntl.h>
@@ -1672,7 +1672,19 @@ symbol_file_command (const char *args, int from_tty)
 
       validate_readnow_readnever (flags);
 
+      /* Set SYMFILE_DEFER_BP_RESET because the proper displacement for a PIE
+	 (Position Independent Executable) main symbol file will only be
+	 computed by the solib_create_inferior_hook below.  Without it,
+	 breakpoint_re_set would fail to insert the breakpoints with the zero
+	 displacement.  */
+      add_flags |= SYMFILE_DEFER_BP_RESET;
+
       symbol_file_add_main_1 (name, add_flags, flags, offset);
+
+      solib_create_inferior_hook (from_tty);
+
+      /* Now it's safe to re-add the breakpoints.  */
+      breakpoint_re_set ();
     }
 }
 
@@ -1694,7 +1706,7 @@ set_initial_language (void)
 
   if (lang == language_unknown)
     {
-      char *name = main_name ();
+      const char *name = main_name ();
       struct symbol *sym = lookup_symbol (name, NULL, VAR_DOMAIN, NULL).symbol;
 
       if (sym != NULL)
@@ -2023,6 +2035,8 @@ static void print_transfer_performance (struct ui_file *stream,
 					unsigned long write_count,
 				        std::chrono::steady_clock::duration d);
 
+/* See symfile.h.  */
+
 void
 generic_load (const char *args, int from_tty)
 {
@@ -2081,9 +2095,9 @@ generic_load (const char *args, int from_tty)
   CORE_ADDR entry = bfd_get_start_address (loadfile_bfd.get ());
   entry = gdbarch_addr_bits_remove (target_gdbarch (), entry);
   uiout->text ("Start address ");
-  uiout->field_fmt ("address", "%s", paddress (target_gdbarch (), entry));
+  uiout->field_core_addr ("address", target_gdbarch (), entry);
   uiout->text (", load size ");
-  uiout->field_fmt ("load-size", "%lu", total_progress.data_count);
+  uiout->field_unsigned ("load-size", total_progress.data_count);
   uiout->text ("\n");
   regcache_write_pc (get_current_regcache (), entry);
 
@@ -2126,29 +2140,29 @@ print_transfer_performance (struct ui_file *stream,
 
       if (uiout->is_mi_like_p ())
 	{
-	  uiout->field_fmt ("transfer-rate", "%lu", rate * 8);
+	  uiout->field_unsigned ("transfer-rate", rate * 8);
 	  uiout->text (" bits/sec");
 	}
       else if (rate < 1024)
 	{
-	  uiout->field_fmt ("transfer-rate", "%lu", rate);
+	  uiout->field_unsigned ("transfer-rate", rate);
 	  uiout->text (" bytes/sec");
 	}
       else
 	{
-	  uiout->field_fmt ("transfer-rate", "%lu", rate / 1024);
+	  uiout->field_unsigned ("transfer-rate", rate / 1024);
 	  uiout->text (" KB/sec");
 	}
     }
   else
     {
-      uiout->field_fmt ("transferred-bits", "%lu", (data_count * 8));
+      uiout->field_unsigned ("transferred-bits", (data_count * 8));
       uiout->text (" bits in <1 sec");
     }
   if (write_count > 0)
     {
       uiout->text (", ");
-      uiout->field_fmt ("write-rate", "%lu", data_count / write_count);
+      uiout->field_unsigned ("write-rate", data_count / write_count);
       uiout->text (" bytes/write");
     }
   uiout->text (".\n");
@@ -2211,12 +2225,6 @@ set_objfile_default_section_offset (struct objfile *objf,
 
 /* This function allows the addition of incrementally linked object files.
    It does not modify any state in the target, only in the debugger.  */
-/* Note: ezannoni 2000-04-13 This function/command used to have a
-   special case syntax for the rombug target (Rombug is the boot
-   monitor for Microware's OS-9 / OS-9000, see remote-os9k.c). In the
-   rombug case, the user doesn't need to supply a text address,
-   instead a call to target_link() (in target.c) would supply the
-   value to use.  We are now discontinuing this type of ad hoc syntax.  */
 
 static void
 add_symbol_file_command (const char *args, int from_tty)
@@ -2358,6 +2366,9 @@ add_symbol_file_command (const char *args, int from_tty)
 
   objf = symbol_file_add (filename.get (), add_flags, &section_addrs,
 			  flags);
+  if (!objfile_has_symbols (objf) && objf->per_bfd->minimal_symbol_count <= 0)
+    warning (_("newly-added symbol file \"%s\" does not provide any symbols"),
+	     filename.get ());
 
   if (seen_offset)
     set_objfile_default_section_offset (objf, section_addrs, offset);
@@ -3877,7 +3888,7 @@ test_set_ext_lang_command ()
   SELF_CHECK (lang == language_unknown);
 
   /* Test adding a new extension using the CLI command.  */
-  gdb::unique_xmalloc_ptr<char> args_holder (xstrdup (".hello rust"));
+  auto args_holder = make_unique_xstrdup (".hello rust");
   ext_args = args_holder.get ();
   set_ext_lang_command (NULL, 1, NULL);
 

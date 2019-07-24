@@ -25,7 +25,7 @@
 #include "frame.h"
 #include "inferior.h"
 #include "infrun.h"
-#include "common/environ.h"
+#include "gdbsupport/environ.h"
 #include "value.h"
 #include "gdbcmd.h"
 #include "symfile.h"
@@ -58,7 +58,7 @@
 #include "thread-fsm.h"
 #include "top.h"
 #include "interps.h"
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 #include "source.h"
 
 /* Local functions: */
@@ -213,7 +213,7 @@ show_args_command (struct ui_file *file, int from_tty,
   deprecated_show_value_hack (file, from_tty, c, get_inferior_args ());
 }
 
-/* See common/common-inferior.h.  */
+/* See gdbsupport/common-inferior.h.  */
 
 void
 set_inferior_cwd (const char *cwd)
@@ -228,7 +228,7 @@ set_inferior_cwd (const char *cwd)
     inf->cwd.reset (xstrdup (cwd));
 }
 
-/* See common/common-inferior.h.  */
+/* See gdbsupport/common-inferior.h.  */
 
 const char *
 get_inferior_cwd ()
@@ -421,7 +421,7 @@ strip_bg_char (const char *args, int *bg_char_p)
     }
 
   *bg_char_p = 0;
-  return gdb::unique_xmalloc_ptr<char> (xstrdup (args));
+  return make_unique_xstrdup (args);
 }
 
 /* Common actions to take after creating any sort of inferior, by any
@@ -1621,10 +1621,14 @@ print_return_value_1 (struct ui_out *uiout, struct return_value_info *rv)
       uiout->text (" = ");
       get_user_print_options (&opts);
 
-      string_file stb;
-
-      value_print (rv->value, &stb, &opts);
-      uiout->field_stream ("return-value", stb);
+      if (opts.finish_print)
+	{
+	  string_file stb;
+	  value_print (rv->value, &stb, &opts);
+	  uiout->field_stream ("return-value", stb);
+	}
+      else
+	uiout->field_string ("return-value", _("<not displayed>"));
       uiout->text ("\n");
     }
   else
@@ -2174,7 +2178,7 @@ path_command (const char *dirname, int from_tty)
   current_inferior ()->environment.set (path_var_name, exec_path);
   xfree (exec_path);
   if (from_tty)
-    path_info ((char *) NULL, from_tty);
+    path_info (NULL, from_tty);
 }
 
 
@@ -3096,6 +3100,19 @@ info_proc_cmd_all (const char *args, int from_tty)
   info_proc_cmd_1 (args, IP_ALL, from_tty);
 }
 
+/* Implement `show print finish'.  */
+
+static void
+show_print_finish (struct ui_file *file, int from_tty,
+		   struct cmd_list_element *c,
+		   const char *value)
+{
+  fprintf_filtered (file, _("\
+Printing of return value after `finish' is %s.\n"),
+		    value);
+}
+
+
 /* This help string is used for the run, start, and starti commands.
    It is defined as a macro to prevent duplication.  */
 
@@ -3377,10 +3394,10 @@ in the named register groups."));
 	    _("Execution status of the program."));
 
   add_info ("float", info_float_command,
-	    _("Print the status of the floating point unit\n"));
+	    _("Print the status of the floating point unit"));
 
   add_info ("vector", info_vector_command,
-	    _("Print the status of the vector unit\n"));
+	    _("Print the status of the vector unit"));
 
   add_prefix_cmd ("proc", class_info, info_proc_cmd,
 		  _("\
@@ -3420,4 +3437,12 @@ List files opened by the specified process."),
   add_cmd ("all", class_info, info_proc_cmd_all, _("\
 List all available info about the specified process."),
 	   &info_proc_cmdlist);
+
+  add_setshow_boolean_cmd ("finish", class_support,
+			   &user_print_options.finish_print, _("\
+Set whether `finish' prints the return value."), _("\
+Show whether `finish' prints the return value."), NULL,
+			   NULL,
+			   show_print_finish,
+			   &setprintlist, &showprintlist);
 }

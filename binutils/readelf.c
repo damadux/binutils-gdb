@@ -60,6 +60,7 @@
 #include "bucomm.h"
 #include "elfcomm.h"
 #include "dwarf.h"
+#include "ctf-api.h"
 
 #include "elf/common.h"
 #include "elf/external.h"
@@ -102,6 +103,7 @@
 #include "elf/d10v.h"
 #include "elf/d30v.h"
 #include "elf/dlx.h"
+#include "elf/bpf.h"
 #include "elf/epiphany.h"
 #include "elf/fr30.h"
 #include "elf/frv.h"
@@ -182,6 +184,7 @@ typedef struct elf_section_list
 #define DEBUG_DUMP	(1 << 2)	/* The -w command line switch.  */
 #define STRING_DUMP     (1 << 3)	/* The -p command line switch.  */
 #define RELOC_DUMP      (1 << 4)	/* The -R command line switch.  */
+#define CTF_DUMP        (1 << 5)        /* The --ctf command line switch.  */
 
 typedef unsigned char dump_type;
 
@@ -248,11 +251,16 @@ static bfd_boolean do_dump = FALSE;
 static bfd_boolean do_version = FALSE;
 static bfd_boolean do_histogram = FALSE;
 static bfd_boolean do_debugging = FALSE;
+static bfd_boolean do_ctf = FALSE;
 static bfd_boolean do_arch = FALSE;
 static bfd_boolean do_notes = FALSE;
 static bfd_boolean do_archive_index = FALSE;
 static bfd_boolean is_32bit_elf = FALSE;
 static bfd_boolean decompress_dumps = FALSE;
+
+static char *dump_ctf_parent_name;
+static char *dump_ctf_symtab_name;
+static char *dump_ctf_strtab_name;
 
 struct group_list
 {
@@ -781,6 +789,7 @@ guess_is_rela (unsigned int e_machine)
     case EM_SCORE:
     case EM_XGATE:
     case EM_NFP:
+    case EM_BPF:
       return FALSE;
 
       /* Targets that use RELA relocations.  */
@@ -1482,6 +1491,10 @@ dump_relocations (Filedata *          filedata,
 	  rtype = elf_visium_reloc_type (type);
 	  break;
 
+        case EM_BPF:
+          rtype = elf_bpf_reloc_type (type);
+          break;
+
 	case EM_ADAPTEVA_EPIPHANY:
 	  rtype = elf_epiphany_reloc_type (type);
 	  break;
@@ -1804,6 +1817,7 @@ get_aarch64_dynamic_type (unsigned long type)
     {
     case DT_AARCH64_BTI_PLT:  return "AARCH64_BTI_PLT";
     case DT_AARCH64_PAC_PLT:  return "AARCH64_PAC_PLT";
+    case DT_AARCH64_VARIANT_PCS:  return "AARCH64_VARIANT_PCS";
     default:
       return NULL;
     }
@@ -2398,7 +2412,7 @@ get_machine_name (unsigned e_machine)
     case EM_TPC:		return "Tenor Network TPC processor";
     case EM_SNP1K:	        return "Trebia SNP 1000 processor";
       /* 100 */
-    case EM_ST200:		return "STMicroelectronics ST200 microcontroller";  
+    case EM_ST200:		return "STMicroelectronics ST200 microcontroller";
     case EM_IP2K_OLD:
     case EM_IP2K:		return "Ubicom IP2xxx 8-bit microcontrollers";
     case EM_MAX:		return "MAX Processor";
@@ -2514,7 +2528,7 @@ get_machine_name (unsigned e_machine)
     case EM_MT:                 return "Morpho Techologies MT processor";
     case EM_ALPHA:		return "Alpha";
     case EM_WEBASSEMBLY:	return "Web Assembly";
-    case EM_DLX:		return "OpenDLX";  
+    case EM_DLX:		return "OpenDLX";
     case EM_XSTORMY16:		return "Sanyo XStormy16 CPU core";
     case EM_IQ2000:       	return "Vitesse IQ2000";
     case EM_M32C_OLD:
@@ -3865,22 +3879,6 @@ get_parisc_segment_type (unsigned long type)
 {
   switch (type)
     {
-    case PT_HP_TLS:		return "HP_TLS";
-    case PT_HP_CORE_NONE:	return "HP_CORE_NONE";
-    case PT_HP_CORE_VERSION:	return "HP_CORE_VERSION";
-    case PT_HP_CORE_KERNEL:	return "HP_CORE_KERNEL";
-    case PT_HP_CORE_COMM:	return "HP_CORE_COMM";
-    case PT_HP_CORE_PROC:	return "HP_CORE_PROC";
-    case PT_HP_CORE_LOADABLE:	return "HP_CORE_LOADABLE";
-    case PT_HP_CORE_STACK:	return "HP_CORE_STACK";
-    case PT_HP_CORE_SHM:	return "HP_CORE_SHM";
-    case PT_HP_CORE_MMF:	return "HP_CORE_MMF";
-    case PT_HP_PARALLEL:	return "HP_PARALLEL";
-    case PT_HP_FASTBIND:	return "HP_FASTBIND";
-    case PT_HP_OPT_ANNOT:	return "HP_OPT_ANNOT";
-    case PT_HP_HSL_ANNOT:	return "HP_HSL_ANNOT";
-    case PT_HP_STACK:		return "HP_STACK";
-    case PT_HP_CORE_UTSNAME:	return "HP_CORE_UTSNAME";
     case PT_PARISC_ARCHEXT:	return "PARISC_ARCHEXT";
     case PT_PARISC_UNWIND:	return "PARISC_UNWIND";
     case PT_PARISC_WEAKORDER:	return "PARISC_WEAKORDER";
@@ -3895,10 +3893,6 @@ get_ia64_segment_type (unsigned long type)
     {
     case PT_IA_64_ARCHEXT:	return "IA_64_ARCHEXT";
     case PT_IA_64_UNWIND:	return "IA_64_UNWIND";
-    case PT_HP_TLS:		return "HP_TLS";
-    case PT_IA_64_HP_OPT_ANOT:	return "HP_OPT_ANNOT";
-    case PT_IA_64_HP_HSL_ANOT:	return "HP_HSL_ANNOT";
-    case PT_IA_64_HP_STACK:	return "HP_STACK";
     default:                    return NULL;
     }
 }
@@ -3911,6 +3905,44 @@ get_tic6x_segment_type (unsigned long type)
     case PT_C6000_PHATTR:  return "C6000_PHATTR";
     default:               return NULL;
     }
+}
+
+static const char *
+get_hpux_segment_type (unsigned long type, unsigned e_machine)
+{
+  if (e_machine == EM_PARISC)
+    switch (type)
+      {
+      case PT_HP_TLS:		return "HP_TLS";
+      case PT_HP_CORE_NONE:	return "HP_CORE_NONE";
+      case PT_HP_CORE_VERSION:	return "HP_CORE_VERSION";
+      case PT_HP_CORE_KERNEL:	return "HP_CORE_KERNEL";
+      case PT_HP_CORE_COMM:	return "HP_CORE_COMM";
+      case PT_HP_CORE_PROC:	return "HP_CORE_PROC";
+      case PT_HP_CORE_LOADABLE:	return "HP_CORE_LOADABLE";
+      case PT_HP_CORE_STACK:	return "HP_CORE_STACK";
+      case PT_HP_CORE_SHM:	return "HP_CORE_SHM";
+      case PT_HP_CORE_MMF:	return "HP_CORE_MMF";
+      case PT_HP_PARALLEL:	return "HP_PARALLEL";
+      case PT_HP_FASTBIND:	return "HP_FASTBIND";
+      case PT_HP_OPT_ANNOT:	return "HP_OPT_ANNOT";
+      case PT_HP_HSL_ANNOT:	return "HP_HSL_ANNOT";
+      case PT_HP_STACK:		return "HP_STACK";
+      case PT_HP_CORE_UTSNAME:	return "HP_CORE_UTSNAME";
+      default:			return NULL;
+      }
+
+  if (e_machine == EM_IA_64)
+    switch (type)
+      {
+      case PT_HP_TLS:		 return "HP_TLS";
+      case PT_IA_64_HP_OPT_ANOT: return "HP_OPT_ANNOT";
+      case PT_IA_64_HP_HSL_ANOT: return "HP_HSL_ANNOT";
+      case PT_IA_64_HP_STACK:	 return "HP_STACK";
+      default:			 return NULL;
+      }
+
+  return NULL;
 }
 
 static const char *
@@ -3951,12 +3983,7 @@ get_segment_type (Filedata * filedata, unsigned long p_type)
     case PT_GNU_PROPERTY: return "GNU_PROPERTY";
 
     default:
-      if (p_type >= PT_GNU_MBIND_LO && p_type <= PT_GNU_MBIND_HI)
-	{
-	  sprintf (buff, "GNU_MBIND+%#lx",
-		   p_type - PT_GNU_MBIND_LO);
-	}
-      else if ((p_type >= PT_LOPROC) && (p_type <= PT_HIPROC))
+      if ((p_type >= PT_LOPROC) && (p_type <= PT_HIPROC))
 	{
 	  const char * result;
 
@@ -3997,24 +4024,28 @@ get_segment_type (Filedata * filedata, unsigned long p_type)
 	}
       else if ((p_type >= PT_LOOS) && (p_type <= PT_HIOS))
 	{
-	  const char * result;
+	  const char * result = NULL;
 
-	  switch (filedata->file_header.e_machine)
+	  switch (filedata->file_header.e_ident[EI_OSABI])
 	    {
-	    case EM_PARISC:
-	      result = get_parisc_segment_type (p_type);
+	    case ELFOSABI_GNU:
+	    case ELFOSABI_FREEBSD:
+	      if (p_type >= PT_GNU_MBIND_LO && p_type <= PT_GNU_MBIND_HI)
+		{
+		  sprintf (buff, "GNU_MBIND+%#lx", p_type - PT_GNU_MBIND_LO);
+		  result = buff;
+		}
 	      break;
-	    case EM_IA_64:
-	      result = get_ia64_segment_type (p_type);
+	    case ELFOSABI_HPUX:
+	      result = get_hpux_segment_type (p_type,
+					      filedata->file_header.e_machine);
+	      break;
+	    case ELFOSABI_SOLARIS:
+	      result = get_solaris_segment_type (p_type);
 	      break;
 	    default:
-	      if (filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_SOLARIS)
-		result = get_solaris_segment_type (p_type);
-	      else
-		result = NULL;
 	      break;
 	    }
-
 	  if (result != NULL)
 	    return result;
 
@@ -4387,6 +4418,10 @@ get_section_type_name (Filedata * filedata, unsigned int sh_type)
 #define OPTION_DWARF_DEPTH	514
 #define OPTION_DWARF_START	515
 #define OPTION_DWARF_CHECK	516
+#define OPTION_CTF_DUMP		517
+#define OPTION_CTF_PARENT	518
+#define OPTION_CTF_SYMBOLS	519
+#define OPTION_CTF_STRINGS	520
 
 static struct option options[] =
 {
@@ -4424,6 +4459,12 @@ static struct option options[] =
   {"dwarf-depth",      required_argument, 0, OPTION_DWARF_DEPTH},
   {"dwarf-start",      required_argument, 0, OPTION_DWARF_START},
   {"dwarf-check",      no_argument, 0, OPTION_DWARF_CHECK},
+
+  {"ctf",              required_argument, 0, OPTION_CTF_DUMP},
+
+  {"ctf-symbols",      required_argument, 0, OPTION_CTF_SYMBOLS},
+  {"ctf-strings",      required_argument, 0, OPTION_CTF_STRINGS},
+  {"ctf-parent",       required_argument, 0, OPTION_CTF_PARENT},
 
   {"version",	       no_argument, 0, 'v'},
   {"wide",	       no_argument, 0, 'W'},
@@ -4474,6 +4515,15 @@ usage (FILE * stream)
   --dwarf-depth=N        Do not display DIEs at depth N or greater\n\
   --dwarf-start=N        Display DIEs starting with N, at the same depth\n\
                          or deeper\n"));
+  fprintf (stream, _("\
+  --ctf=<number|name>    Display CTF info from section <number|name>\n\
+  --ctf-parent=<number|name>\n\
+                         Use section <number|name> as the CTF parent\n\n\
+  --ctf-symbols=<number|name>\n\
+                         Use section <number|name> as the CTF external symtab\n\n\
+  --ctf-strings=<number|name>\n\
+                         Use section <number|name> as the CTF external strtab\n\n"));
+
 #ifdef SUPPORT_DISASSEMBLY
   fprintf (stream, _("\
   -i --instruction-dump=<number|name>\n\
@@ -4700,6 +4750,19 @@ parse_args (Filedata * filedata, int argc, char ** argv)
 	  break;
 	case OPTION_DWARF_CHECK:
 	  dwarf_check = TRUE;
+	  break;
+	case OPTION_CTF_DUMP:
+	  do_ctf = TRUE;
+	  request_dump (filedata, CTF_DUMP);
+	  break;
+	case OPTION_CTF_SYMBOLS:
+	  dump_ctf_symtab_name = strdup (optarg);
+	  break;
+	case OPTION_CTF_STRINGS:
+	  dump_ctf_strtab_name = strdup (optarg);
+	  break;
+	case OPTION_CTF_PARENT:
+	  dump_ctf_parent_name = strdup (optarg);
 	  break;
 	case OPTION_DYN_SYMS:
 	  do_dyn_syms = TRUE;
@@ -6868,7 +6931,7 @@ process_section_groups (Filedata * filedata)
 		     printable_section_name (filedata, section),
 		     (unsigned long) section->sh_entsize,
 		     (unsigned long) section->sh_size);
-	      break;
+	      continue;
 	    }
 
 	  start = (unsigned char *) get_data (NULL, filedata, section->sh_offset,
@@ -8983,6 +9046,11 @@ decode_arm_unwind (Filedata *                 filedata,
 
       remaining = 4;
     }
+  else
+    {
+      addr.section = SHN_UNDEF;
+      addr.offset = 0;
+    }
 
   if ((word & 0x80000000) == 0)
     {
@@ -10488,7 +10556,7 @@ process_version_sections (Filedata * filedata)
 		    printable_section_name (filedata, section),
 		    section->sh_info);
 
-	    printf (_("  Addr: 0x"));
+	    printf (_(" Addr: 0x"));
 	    printf_vma (section->sh_addr);
 	    printf (_("  Offset: %#08lx  Link: %u (%s)\n"),
 		    (unsigned long) section->sh_offset, section->sh_link,
@@ -10780,7 +10848,7 @@ process_version_sections (Filedata * filedata)
 			      total),
 		    printable_section_name (filedata, section), (unsigned long) total);
 
-	    printf (_(" Addr: "));
+	    printf (_(" Addr: 0x"));
 	    printf_vma (section->sh_addr);
 	    printf (_("  Offset: %#08lx  Link: %u (%s)\n"),
 		    (unsigned long) section->sh_offset, section->sh_link,
@@ -11001,9 +11069,7 @@ get_symbol_binding (Filedata * filedata, unsigned int binding)
       else if (binding >= STB_LOOS && binding <= STB_HIOS)
 	{
 	  if (binding == STB_GNU_UNIQUE
-	      && (filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_GNU
-		  /* GNU is still using the default value 0.  */
-		  || filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_NONE))
+	      && filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_GNU)
 	    return "UNIQUE";
 	  snprintf (buff, sizeof (buff), _("<OS specific>: %d"), binding);
 	}
@@ -11055,9 +11121,7 @@ get_symbol_type (Filedata * filedata, unsigned int type)
 
 	  if (type == STT_GNU_IFUNC
 	      && (filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_GNU
-		  || filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_FREEBSD
-		  /* GNU is still using the default value 0.  */
-		  || filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_NONE))
+		  || filedata->file_header.e_ident[EI_OSABI] == ELFOSABI_FREEBSD))
 	    return "IFUNC";
 
 	  snprintf (buff, sizeof (buff), _("<OS specific>: %d"), type);
@@ -11084,6 +11148,19 @@ get_symbol_visibility (unsigned int visibility)
 }
 
 static const char *
+get_alpha_symbol_other (unsigned int other)
+{
+  switch (other)
+    {
+    case STO_ALPHA_NOPV:       return "NOPV";
+    case STO_ALPHA_STD_GPLOAD: return "STD GPLOAD";
+    default:
+      error (_("Unrecognized alpah specific other value: %u"), other);
+      return _("<unknown>");
+    }
+}
+
+static const char *
 get_solaris_symbol_visibility (unsigned int visibility)
 {
   switch (visibility)
@@ -11093,6 +11170,22 @@ get_solaris_symbol_visibility (unsigned int visibility)
     case 6: return "ELIMINATE";
     default: return get_symbol_visibility (visibility);
     }
+}
+
+static const char *
+get_aarch64_symbol_other (unsigned int other)
+{
+  static char buf[32];
+
+  if (other & STO_AARCH64_VARIANT_PCS)
+    {
+      other &= ~STO_AARCH64_VARIANT_PCS;
+      if (other == 0)
+	return "VARIANT_PCS";
+      snprintf (buf, sizeof buf, "VARIANT_PCS | %x", other);
+      return buf;
+    }
+  return NULL;
 }
 
 static const char *
@@ -11206,6 +11299,12 @@ get_symbol_other (Filedata * filedata, unsigned int other)
 
   switch (filedata->file_header.e_machine)
     {
+    case EM_ALPHA:
+      result = get_alpha_symbol_other (other);
+      break;
+    case EM_AARCH64:
+      result = get_aarch64_symbol_other (other);
+      break;
     case EM_MIPS:
       result = get_mips_symbol_other (other);
       break;
@@ -11463,7 +11562,7 @@ get_symbol_version_string (Filedata *                   filedata,
 
       if (ivd.vd_ndx == (vers_data & VERSYM_VERSION))
 	{
-	  if (ivd.vd_ndx == 1 && ivd.vd_flags == VER_FLG_BASE) 
+	  if (ivd.vd_ndx == 1 && ivd.vd_flags == VER_FLG_BASE)
 	    return NULL;
 
 	  off -= ivd.vd_next;
@@ -12410,6 +12509,8 @@ is_32bit_abs_reloc (Filedata * filedata, unsigned int reloc_type)
     case EM_AARCH64:
       return (reloc_type == 258
 	      || reloc_type == 1); /* R_AARCH64_ABS32 || R_AARCH64_P32_ABS32 */
+    case EM_BPF:
+      return reloc_type == 11; /* R_BPF_DATA_32 */
     case EM_ADAPTEVA_EPIPHANY:
       return reloc_type == 3;
     case EM_ALPHA:
@@ -12510,7 +12611,7 @@ is_32bit_abs_reloc (Filedata * filedata, unsigned int reloc_type)
     case EM_OR1K:
       return reloc_type == 1; /* R_OR1K_32.  */
     case EM_PARISC:
-      return (reloc_type == 1 /* R_PARISC_DIR32.  */	      
+      return (reloc_type == 1 /* R_PARISC_DIR32.  */
 	      || reloc_type == 2 /* R_PARISC_DIR21L.  */
 	      || reloc_type == 41); /* R_PARISC_SECREL32.  */
     case EM_PJ:
@@ -12650,6 +12751,8 @@ is_32bit_pcrel_reloc (Filedata * filedata, unsigned int reloc_type)
     case EM_L1OM:
     case EM_K1OM:
       return reloc_type == 2;  /* R_X86_64_PC32.  */
+    case EM_VAX:
+      return reloc_type == 4;  /* R_VAX_PCREL32.  */
     case EM_XTENSA_OLD:
     case EM_XTENSA:
       return reloc_type == 14; /* R_XTENSA_32_PCREL.  */
@@ -13741,6 +13844,160 @@ dump_section_as_bytes (Elf_Internal_Shdr *  section,
   return TRUE;
 }
 
+static ctf_sect_t *
+shdr_to_ctf_sect (ctf_sect_t *buf, Elf_Internal_Shdr *shdr, Filedata *filedata)
+{
+  buf->cts_name = SECTION_NAME (shdr);
+  buf->cts_size = shdr->sh_size;
+  buf->cts_entsize = shdr->sh_entsize;
+
+  return buf;
+}
+
+/* Formatting callback function passed to ctf_dump.  Returns either the pointer
+   it is passed, or a pointer to newly-allocated storage, in which case
+   dump_ctf() will free it when it no longer needs it.  */
+
+static char *dump_ctf_indent_lines (ctf_sect_names_t sect ATTRIBUTE_UNUSED,
+				    char *s, void *arg)
+{
+  const char *blanks = arg;
+  char *new_s;
+
+  if (asprintf (&new_s, "%s%s", blanks, s) < 0)
+    return s;
+  return new_s;
+}
+
+static bfd_boolean
+dump_section_as_ctf (Elf_Internal_Shdr * section, Filedata * filedata)
+{
+  Elf_Internal_Shdr *  parent_sec = NULL;
+  Elf_Internal_Shdr *  symtab_sec = NULL;
+  Elf_Internal_Shdr *  strtab_sec = NULL;
+  void *      	       data = NULL;
+  void *      	       symdata = NULL;
+  void *      	       strdata = NULL;
+  void *      	       parentdata = NULL;
+  ctf_sect_t           ctfsect, symsect, strsect, parentsect;
+  ctf_sect_t *         symsectp = NULL;
+  ctf_sect_t *         strsectp = NULL;
+  ctf_file_t *         ctf = NULL;
+  ctf_file_t *         parent = NULL;
+
+  const char *things[] = {"Labels", "Data objects", "Function objects",
+			  "Variables", "Types", "Strings", ""};
+  const char **thing;
+  int err;
+  bfd_boolean ret = FALSE;
+  size_t i;
+
+  shdr_to_ctf_sect (&ctfsect, section, filedata);
+  data = get_section_contents (section, filedata);
+  ctfsect.cts_data = data;
+
+  if (dump_ctf_symtab_name)
+    {
+      if ((symtab_sec = find_section (filedata, dump_ctf_symtab_name)) == NULL)
+	{
+	  error (_("No symbol section named %s\n"), dump_ctf_symtab_name);
+	  goto fail;
+	}
+      if ((symdata = (void *) get_data (NULL, filedata,
+					symtab_sec->sh_offset, 1,
+					symtab_sec->sh_size,
+					_("symbols"))) == NULL)
+	goto fail;
+      symsectp = shdr_to_ctf_sect (&symsect, symtab_sec, filedata);
+      symsect.cts_data = symdata;
+    }
+  if (dump_ctf_strtab_name)
+    {
+      if ((strtab_sec = find_section (filedata, dump_ctf_strtab_name)) == NULL)
+	{
+	  error (_("No string table section named %s\n"),
+		 dump_ctf_strtab_name);
+	  goto fail;
+	}
+      if ((strdata = (void *) get_data (NULL, filedata,
+					strtab_sec->sh_offset, 1,
+					strtab_sec->sh_size,
+					_("strings"))) == NULL)
+	goto fail;
+      strsectp = shdr_to_ctf_sect (&strsect, strtab_sec, filedata);
+      strsect.cts_data = strdata;
+    }
+  if (dump_ctf_parent_name)
+    {
+      if ((parent_sec = find_section (filedata, dump_ctf_parent_name)) == NULL)
+	{
+	  error (_("No CTF parent section named %s\n"), dump_ctf_parent_name);
+	  goto fail;
+	}
+      if ((parentdata = (void *) get_data (NULL, filedata,
+					   parent_sec->sh_offset, 1,
+					   parent_sec->sh_size,
+					   _("CTF parent"))) == NULL)
+	goto fail;
+      shdr_to_ctf_sect (&parentsect, parent_sec, filedata);
+      parentsect.cts_data = parentdata;
+    }
+
+  /* Load the CTF file and dump it.  */
+
+  if ((ctf = ctf_bufopen (&ctfsect, symsectp, strsectp, &err)) == NULL)
+    {
+      error (_("CTF open failure: %s\n"), ctf_errmsg (err));
+      goto fail;
+    }
+
+  if (parentdata)
+    {
+      if ((parent = ctf_bufopen (&parentsect, symsectp, strsectp, &err)) == NULL)
+	{
+	  error (_("CTF open failure: %s\n"), ctf_errmsg (err));
+	  goto fail;
+	}
+
+      ctf_import (ctf, parent);
+    }
+
+  ret = TRUE;
+
+  printf (_("\nDump of CTF section '%s':\n"),
+	  printable_section_name (filedata, section));
+
+  for (i = 1, thing = things; *thing[0]; thing++, i++)
+    {
+      ctf_dump_state_t *s = NULL;
+      char *item;
+
+      printf ("\n  %s:\n", *thing);
+      while ((item = ctf_dump (ctf, &s, i, dump_ctf_indent_lines,
+			       (void *) "    ")) != NULL)
+	{
+	  printf ("%s\n", item);
+	  free (item);
+	}
+
+      if (ctf_errno (ctf))
+	{
+	  error (_("Iteration failed: %s, %s\n"), *thing,
+		   ctf_errmsg (ctf_errno (ctf)));
+	  ret = FALSE;
+	}
+    }
+
+ fail:
+  ctf_file_close (ctf);
+  ctf_file_close (parent);
+  free (parentdata);
+  free (data);
+  free (symdata);
+  free (strdata);
+  return ret;
+}
+
 static bfd_boolean
 load_specific_debug_section (enum dwarf_section_display_enum  debug,
 			     const Elf_Internal_Shdr *        sec,
@@ -13749,7 +14006,7 @@ load_specific_debug_section (enum dwarf_section_display_enum  debug,
   struct dwarf_section * section = &debug_displays [debug].section;
   char buf [64];
   Filedata * filedata = (Filedata *) data;
-  
+
   if (section->start != NULL)
     {
       /* If it is already loaded, do nothing.  */
@@ -14076,6 +14333,12 @@ process_section_contents (Filedata * filedata)
       if (dump & DEBUG_DUMP)
 	{
 	  if (! display_debug_section (i, section, filedata))
+	    res = FALSE;
+	}
+
+      if (dump & CTF_DUMP)
+	{
+	  if (! dump_section_as_ctf (section, filedata))
 	    res = FALSE;
 	}
     }
@@ -14434,6 +14697,9 @@ static const char * arm_attr_tag_Virtualization_use[] =
 static const char * arm_attr_tag_MPextension_use_legacy[] =
   {"Not Allowed", "Allowed"};
 
+static const char * arm_attr_tag_MVE_arch[] =
+  {"No MVE", "MVE Integer only", "MVE Integer and FP"};
+
 #define LOOKUP(id, name) \
   {id, #name, 0x80 | ARRAY_SIZE(arm_attr_tag_##name), arm_attr_tag_##name}
 static arm_attr_public_tag arm_attr_public_tags[] =
@@ -14473,6 +14739,7 @@ static arm_attr_public_tag arm_attr_public_tags[] =
   LOOKUP(42, MPextension_use),
   LOOKUP(44, DIV_use),
   LOOKUP(46, DSP_extension),
+  LOOKUP(48, MVE_arch),
   {64, "nodefaults", 0, NULL},
   {65, "also_compatible_with", 0, NULL},
   LOOKUP(66, T2EE_use),
@@ -17701,7 +17968,7 @@ print_gnu_note (Filedata * filedata, Elf_Internal_Note *pnote)
     case NT_GNU_PROPERTY_TYPE_0:
       print_gnu_property_note (filedata, pnote);
       break;
-      
+
     default:
       /* Handle unrecognised types.  An error message should have already been
 	 created by get_gnu_elf_note_type(), so all that we need to do is to
@@ -17821,9 +18088,22 @@ process_netbsd_elf_note (Elf_Internal_Note * pnote)
       return TRUE;
 
     case NT_NETBSD_MARCH:
-      printf ("  NetBSD\t0x%08lx\tMARCH <%s>\n", pnote->descsz,
+      printf ("  NetBSD\t\t0x%08lx\tMARCH <%s>\n", pnote->descsz,
 	      pnote->descdata);
       return TRUE;
+
+#ifdef   NT_NETBSD_PAX
+    case NT_NETBSD_PAX:
+      version = byte_get ((unsigned char *) pnote->descdata, sizeof (version));
+      printf ("  NetBSD\t\t0x%08lx\tPaX <%s%s%s%s%s%s>\n", pnote->descsz,
+	      ((version & NT_NETBSD_PAX_MPROTECT) ? "+mprotect" : ""),
+	      ((version & NT_NETBSD_PAX_NOMPROTECT) ? "-mprotect" : ""),
+	      ((version & NT_NETBSD_PAX_GUARD) ? "+guard" : ""),
+	      ((version & NT_NETBSD_PAX_NOGUARD) ? "-guard" : ""),
+	      ((version & NT_NETBSD_PAX_ASLR) ? "+ASLR" : ""),
+	      ((version & NT_NETBSD_PAX_NOASLR) ? "-ASLR" : ""));
+      return TRUE;
+#endif
 
     default:
       printf ("  NetBSD\t0x%08lx\tUnknown note type: (0x%08lx)\n", pnote->descsz,
@@ -17868,18 +18148,29 @@ get_netbsd_elfcore_note_type (Filedata * filedata, unsigned e_type)
 {
   static char buff[64];
 
-  if (e_type == NT_NETBSDCORE_PROCINFO)
-    return _("NetBSD procinfo structure");
-
-  /* As of Jan 2002 there are no other machine-independent notes
-     defined for NetBSD core files.  If the note type is less
-     than the start of the machine-dependent note types, we don't
-     understand it.  */
-
-  if (e_type < NT_NETBSDCORE_FIRSTMACH)
+  switch (e_type)
     {
-      snprintf (buff, sizeof (buff), _("Unknown note type: (0x%08x)"), e_type);
-      return buff;
+    case NT_NETBSDCORE_PROCINFO:
+      /* NetBSD core "procinfo" structure.  */
+      return _("NetBSD procinfo structure");
+
+#ifdef NT_NETBSDCORE_AUXV
+    case NT_NETBSDCORE_AUXV:
+      return _("NetBSD ELF auxiliary vector data");
+#endif
+
+    default:
+      /* As of Jan 2002 there are no other machine-independent notes
+	 defined for NetBSD core files.  If the note type is less
+	 than the start of the machine-dependent note types, we don't
+	 understand it.  */
+
+      if (e_type < NT_NETBSDCORE_FIRSTMACH)
+	{
+	  snprintf (buff, sizeof (buff), _("Unknown note type: (0x%08x)"), e_type);
+	  return buff;
+	}
+      break;
     }
 
   switch (filedata->file_header.e_machine)
@@ -17897,6 +18188,23 @@ get_netbsd_elfcore_note_type (Filedata * filedata, unsigned e_type)
 	case NT_NETBSDCORE_FIRSTMACH + 0:
 	  return _("PT_GETREGS (reg structure)");
 	case NT_NETBSDCORE_FIRSTMACH + 2:
+	  return _("PT_GETFPREGS (fpreg structure)");
+	default:
+	  break;
+	}
+      break;
+
+    /* On SuperH, PT_GETREGS == mach+3 and PT_GETFPREGS == mach+5.
+       There's also old PT___GETREGS40 == mach + 1 for old reg
+       structure which lacks GBR.  */
+    case EM_SH:
+      switch (e_type)
+	{
+	case NT_NETBSDCORE_FIRSTMACH + 1:
+	  return _("PT___GETREGS40 (old reg structure)");
+	case NT_NETBSDCORE_FIRSTMACH + 3:
+	  return _("PT_GETREGS (reg structure)");
+	case NT_NETBSDCORE_FIRSTMACH + 5:
 	  return _("PT_GETFPREGS (fpreg structure)");
 	default:
 	  break;
@@ -17985,7 +18293,7 @@ print_stapsdt_note (Elf_Internal_Note *pnote)
     }
   else
     goto stapdt_note_too_small;
-  
+
   if (data >= data_end)
     goto stapdt_note_too_small;
   maxlen = data_end - data;
@@ -18312,7 +18620,7 @@ same_section (Filedata * filedata, unsigned long addr1, unsigned long addr2)
 
   a1 = find_section_by_address (filedata, addr1);
   a2 = find_section_by_address (filedata, addr2);
-  
+
   return a1 == a2 && a1 != NULL;
 }
 
@@ -18376,7 +18684,7 @@ print_gnu_build_attribute_description (Elf_Internal_Note *  pnote,
       start = byte_get ((unsigned char *) pnote->descdata, 8);
       end = byte_get ((unsigned char *) pnote->descdata + 8, 8);
       break;
-      
+
     default:
       error (_("    <invalid description size: %lx>\n"), pnote->descsz);
       printf (_("    <invalid descsz>"));
@@ -18671,7 +18979,7 @@ print_gnu_build_attribute_name (Elf_Internal_Note * pnote)
 
   if (do_wide && left > 0)
     printf ("%-*s", left, " ");
-    
+
   return TRUE;
 }
 
@@ -18706,6 +19014,10 @@ process_note (Elf_Internal_Note *  pnote,
     nt = get_netbsd_elfcore_note_type (filedata, pnote->type);
 
   else if (const_strneq (pnote->namedata, "NetBSD"))
+    /* NetBSD-specific core file notes.  */
+    return process_netbsd_elf_note (pnote);
+
+  else if (const_strneq (pnote->namedata, "PaX"))
     /* NetBSD-specific core file notes.  */
     return process_netbsd_elf_note (pnote);
 
@@ -19692,7 +20004,7 @@ process_archive (Filedata * filedata, bfd_boolean is_thin_archive)
 	  /* PR 24049 - we cannot use filedata->file_name as this will
 	     have already been freed.  */
 	  error (_("%s: failed to read archive header\n"), arch.file_name);
-	    
+
           ret = FALSE;
           break;
         }
@@ -19786,7 +20098,7 @@ process_archive (Filedata * filedata, bfd_boolean is_thin_archive)
 
 	  thin_filedata.handle = nested_arch.file;
 	  thin_filedata.file_name = qualified_name;
-	  
+
           if (! process_object (& thin_filedata))
 	    ret = FALSE;
         }
@@ -19952,6 +20264,10 @@ main (int argc, char ** argv)
 
   if (cmdline.dump_sects != NULL)
     free (cmdline.dump_sects);
+
+  free (dump_ctf_symtab_name);
+  free (dump_ctf_strtab_name);
+  free (dump_ctf_parent_name);
 
   return err ? EXIT_FAILURE : EXIT_SUCCESS;
 }

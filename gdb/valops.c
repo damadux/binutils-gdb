@@ -39,7 +39,7 @@
 #include "observable.h"
 #include "objfiles.h"
 #include "extension.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/byte-vector.h"
 
 extern unsigned int overload_debug;
 /* Local functions.  */
@@ -402,12 +402,12 @@ value_cast (struct type *type, struct value *arg2)
 		       "divide object size in cast"));
 	  /* FIXME-type-allocation: need a way to free this type when
 	     we are done with it.  */
-	  range_type = create_static_range_type ((struct type *) NULL,
+	  range_type = create_static_range_type (NULL,
 						 TYPE_TARGET_TYPE (range_type),
 						 low_bound,
 						 new_length + low_bound - 1);
 	  deprecated_set_value_type (arg2, 
-				     create_array_type ((struct type *) NULL,
+				     create_array_type (NULL,
 							element_type, 
 							range_type));
 	  return arg2;
@@ -555,8 +555,9 @@ value_cast (struct type *type, struct value *arg2)
     return value_at_lazy (to_type, value_address (arg2));
   else
     {
+      if (current_language->la_language == language_ada)
+	error (_("Invalid type conversion."));
       error (_("Invalid cast."));
-      return 0;
     }
 }
 
@@ -1342,10 +1343,9 @@ address_of_variable (struct symbol *var, const struct block *b)
   return val;
 }
 
-/* Return one if VAL does not live in target memory, but should in order
-   to operate on it.  Otherwise return zero.  */
+/* See value.h.  */
 
-int
+bool
 value_must_coerce_to_target (struct value *val)
 {
   struct type *valtype;
@@ -1354,7 +1354,7 @@ value_must_coerce_to_target (struct value *val)
   if (VALUE_LVAL (val) != not_lval
       && VALUE_LVAL (val) != lval_internalvar
       && VALUE_LVAL (val) != lval_xcallable)
-    return 0;
+    return false;
 
   valtype = check_typedef (value_type (val));
 
@@ -1363,9 +1363,9 @@ value_must_coerce_to_target (struct value *val)
     case TYPE_CODE_ARRAY:
       return TYPE_VECTOR (valtype) ? 0 : 1;
     case TYPE_CODE_STRING:
-      return 1;
+      return true;
     default:
-      return 0;
+      return false;
     }
 }
 
@@ -3801,6 +3801,11 @@ value_slice (struct value *array, int lowbound, int length)
       && TYPE_CODE (array_type) != TYPE_CODE_STRING)
     error (_("cannot take slice of non-array"));
 
+  if (type_not_allocated (array_type))
+    error (_("array not allocated"));
+  if (type_not_associated (array_type))
+    error (_("array not associated"));
+
   range_type = TYPE_INDEX_TYPE (array_type);
   if (get_discrete_bounds (range_type, &lowerbound, &upperbound) < 0)
     error (_("slice from bad array or bitstring"));
@@ -3811,7 +3816,7 @@ value_slice (struct value *array, int lowbound, int length)
 
   /* FIXME-type-allocation: need a way to free this type when we are
      done with it.  */
-  slice_range_type = create_static_range_type ((struct type *) NULL,
+  slice_range_type = create_static_range_type (NULL,
 					       TYPE_TARGET_TYPE (range_type),
 					       lowbound,
 					       lowbound + length - 1);
@@ -3821,7 +3826,7 @@ value_slice (struct value *array, int lowbound, int length)
     LONGEST offset
       = (lowbound - lowerbound) * TYPE_LENGTH (check_typedef (element_type));
 
-    slice_type = create_array_type ((struct type *) NULL,
+    slice_type = create_array_type (NULL,
 				    element_type,
 				    slice_range_type);
     TYPE_CODE (slice_type) = TYPE_CODE (array_type);
