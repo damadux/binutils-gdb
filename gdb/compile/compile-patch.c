@@ -21,8 +21,8 @@
 #include "arch-utils.h"
 #include "block.h"
 #include "breakpoint.h"
-#include "common/gdb_unlinker.h"
-#include "common/pathstuff.h"
+#include "gdbsupport/gdb_unlinker.h"
+#include "gdbsupport/pathstuff.h"
 #include "linespec.h"
 #include "objfiles.h"
 #include "source.h"
@@ -865,33 +865,40 @@ step_1 (int skip_subroutines, int single_inst, const char *count_string);
 void
 step_command (const char *count_string, int from_tty);
 
+
 void
 patch_sigill_handler(const char *arg, int from_tty)
 {
-  CORE_ADDR sig_addr = get_frame_pc (get_selected_frame (NULL));
+  static CORE_ADDR sig_addr;
+  static gdb_byte buffer[4];
   
-  printf("Address : %lx \n", sig_addr);
-  /* Find which patch causes the problem */
-  auto it = all_patches.patches.begin ();
-  
-  for (; it != all_patches.patches.end (); it++)
-    {
-      if (it->active && it->patch->address<=sig_addr && sig_addr<it->patch->address+5)
-        {
-          int offset = sig_addr - it->patch->address;
-          /* Reposition instruction */
-          gdb_byte buffer[4];
-          target_read_memory(sig_addr,buffer, 4);
-          target_write_memory(sig_addr,it->patch->original_insn + offset,5-offset);
-          printf("Corrected ! %hx \n", it->patch->original_insn[offset]);//,it->patch->original_insn[2],it->patch->original_insn[3],it->patch->original_insn[4] );
-          /* step and rewrite */
-          step_command(NULL,0);
-
-          /* DO STEP */
-          printf("Stepped now rewrite !\n");
-          target_write_memory(sig_addr,buffer,4);
-          break;
-        }
-    }
+  if(!strcmp(arg,"1"))
+  {
+    sig_addr = get_frame_pc (get_selected_frame (NULL));
+    // printf("Address : %lx \n", sig_addr);
+      /* Find which patch causes the problem */
+    auto it = all_patches.patches.begin ();
+    
+    for (; it != all_patches.patches.end (); it++)
+      {
+        if (it->active && it->patch->address<=sig_addr && sig_addr<it->patch->address+5)
+          {
+            int offset = sig_addr - it->patch->address;
+            /* Reposition instruction */
+            
+            target_read_memory(sig_addr,buffer, 4);
+            target_write_memory(sig_addr,it->patch->original_insn + offset,5-offset);
+            // printf("Corrected ! %hx \n", it->patch->original_insn[offset]);//,it->patch->original_insn[2],it->patch->original_insn[3],it->patch->original_insn[4] );
+            /* step and rewrite */
+            // step_command(NULL,0);
+            break;
+          }
+      }
+  }
+  else
+  {
+    // printf("Stepped now rewrite %lx   %hx!\n", sig_addr, buffer[0]);
+    target_write_memory(sig_addr,buffer,4);
+  }
     /* RESUME */
 } 

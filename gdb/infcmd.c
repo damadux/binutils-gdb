@@ -921,7 +921,7 @@ set_step_frame (void)
 
 /* Step until outside of current statement.  */
 
-void
+static void
 step_command (const char *count_string, int from_tty)
 {
   step_1 (0, 0, count_string);
@@ -937,7 +937,7 @@ next_command (const char *count_string, int from_tty)
 
 /* Likewise, but step only one instruction.  */
 
-static void
+void
 stepi_command (const char *count_string, int from_tty)
 {
   step_1 (0, 1, count_string);
@@ -994,7 +994,7 @@ step_command_fsm_prepare (struct step_command_fsm *sm,
 
 static int prepare_one_step (struct step_command_fsm *sm);
 
-void
+static void
 step_1 (int skip_subroutines, int single_inst, const char *count_string)
 {
   int count;

@@ -40,11 +40,11 @@
 #include "osabi.h"
 #include "gdbsupport/gdb_wait.h"
 #include "valprint.h"
-#include "compile-patch.h"
-#include "observable.h"
 #include "gdbsupport/gdb_optional.h"
 #include "gdbsupport/gdb_unlinker.h"
 #include "gdbsupport/pathstuff.h"
+#include "compile-patch.h"
+#include "observable.h"
 
 
 /* Initial filename for temporary files.  */
