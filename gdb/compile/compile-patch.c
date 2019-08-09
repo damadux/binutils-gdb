@@ -117,6 +117,111 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   return i;
 }
 
+int
+build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int read_r_registers)
+{
+  /* For now, only x64 architecture */
+  const int num_regs = 16;
+  int i = 0;
+  int stack_offset = 0;
+
+  /* save registers */
+  buf[i++] = 0x54; /* push %rsp */
+  buf[i++] = 0x55; /* push %rbp */
+  buf[i++] = 0x57; /* push %rdi */
+  buf[i++] = 0x56; /* push %rsi */
+  buf[i++] = 0x53; /* push %rbx */
+  buf[i++] = 0x52; /* push %rdx */
+  buf[i++] = 0x51; /* push %rcx */
+  buf[i++] = 0x50; /* push %rax */
+  buf[i++] = 0x41;
+  buf[i++] = 0x54; /* push %r12 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x55; /* push %r13 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x57; /* push %r15 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x56; /* push %r14 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x53; /* push %r11 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x52; /* push %r10 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x51; /* push %r9 */
+  buf[i++] = 0x41;
+  buf[i++] = 0x50; /* push %r8 */
+  /* may cause bug when stepped over */
+  buf[i++] = 0x9c; /* pushfq */ 
+  
+
+  /* For eqch register : if the 64bits version is read,
+     put it first through the address checker */
+  for(int reg = 0; reg<num_regs; reg++)
+  {
+    if(read_r_registers & 1<<reg)
+    {
+      /* mov <reg_value>, %rdi */
+      buf[i++] = 0x48; 
+      buf[i++] = 0x8b; 
+      buf[i++] = 0x7c; 
+      buf[i++] = 0x24; 
+      buf[i++] = (gdb_byte) 0x08*(15-reg+1 + stack_offset); /* +1 for fq */
+
+      /* absolute call memory_check() */
+      buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
+      buf[i++] = 0xb8;
+      memcpy (buf + i, &memory_check_function, 8);
+      i += 8;
+      buf[i++] = 0xff; /* callq *%rax */
+      buf[i++] = 0xd0;
+      /* push result on the stack */
+      buf[i++] = 0x50; /* push %rax */
+      stack_offset ++;
+    }
+  }
+  /* I do not store all registers in a logical order 
+     so that rsp and rbp are handled first / last */
+  gdb_byte pop_insns[] =
+    {0x5c,0x5d,0x5f,0x5e,0x5b,0x5a,0x59,0x58};
+    // {0x58,0x59,0x5a,0x5b,0x5e,0x5f,0x5d,0x5c};
+  /* restore read 64 bits registers */
+  for(int pop_index = 15; pop_index>=0; pop_index--)
+  {
+    if(read_r_registers & (1<<pop_index))
+    {
+      if(pop_index>=8)
+      {
+        buf[i++] = 0x41;
+      }
+      buf[i++] = pop_insns[pop_index%8];
+    }
+  }
+
+  buf[i++] = 0x9d; /* popfq */
+  /* restore the other registers */
+  for(int pop_index = 15; pop_index>=0; pop_index--)
+  {
+    if(!(read_r_registers & (1<<pop_index)))
+    {
+      if(pop_index>=8)
+      {
+        buf[i++] = 0x41;
+      }
+      buf[i++] = pop_insns[pop_index%8];
+    }
+    else
+    {
+      /* Increment stack pointer */
+      buf[i++] = 0x48;
+      buf[i++] = 0x83;
+      buf[i++] = 0xc4;
+      buf[i++] = 0x08; 
+    }
+  }
+
+  return i;
+}
+
 CORE_ADDR
 find_return_address (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
                      bool verbose)
@@ -224,11 +329,12 @@ find_return_address_amad3 (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
 /* Allocate some space for a trampoline.
    mmap is done one page at a time, 
    a larger trampoline cannot be allocated.  */
+/* sigill_idx is a binary array of size 3 coded as an int [true, false, true] -> 0b101 = 5*/
 CORE_ADDR
 allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigill_idx)
 {
   const int page_size = 0x1000;
-  static CORE_ADDR trampoline_mmap_address = 0x100000;
+  static CORE_ADDR trampoline_mmap_address = 0x555555500000; // 0x100000;
   static CORE_ADDR trampoline_address = 0;
   const unsigned prot
       = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
@@ -256,9 +362,8 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
   }
   
 
-  if (sigill_idx != 0 && sigill_idx < 4)
+  if (sigill_idx != 0 && sigill_idx < 0b1000)
   {
-    int32_t offset = 0x6<<(8*(sigill_idx - 1));
     int64_t pre_offset = trampoline_address - addr - 5;
     if (pre_offset > INT_MAX || pre_offset < INT_MIN)
     {
@@ -271,10 +376,15 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
     }
     int32_t pre_offset32 = (int32_t) pre_offset;
     // printf("address %lx pre_offset %x \n", trampoline_address, (unsigned int) pre_offset32);
-
+    int32_t offset = 0;
+    gdb_byte ill_insn = 0x6;
     for(int i = 0; i<4; i++)
     {
-      if(i+1 != sigill_idx)
+      if(1<<i & sigill_idx)
+      {
+        memcpy( ((gdb_byte *) &offset) + i, &ill_insn, 1);
+      }
+      else
       {
         memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
       }
@@ -285,8 +395,8 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
     // printf("difference %x \n", difference);
     if(difference < 0)
     {
-      difference += 0x1<<(8*sigill_idx);
-      offset += 0x1<<(8*sigill_idx);
+      difference += 0x1<<(8*3);
+      offset += 0x1<<(8*3);
     }
     // printf("difference %x offset %x \n", (unsigned int) difference, (unsigned int) offset);
 
@@ -411,19 +521,26 @@ CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int
 CORE_ADDR
 build_compile_trampoline (struct gdbarch *gdbarch,
                           struct compile_module *module, Patch *patch,
-                          CORE_ADDR return_address)
+                          CORE_ADDR return_address, int read_regs)
 {
   CORE_ADDR insn_addr = patch->address;
-  struct symbol *func_sym = module->func_sym;
-  CORE_ADDR func_addr = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (func_sym));
-
-  CORE_ADDR regs_addr = module->regs_addr;
 
   /* Build trampoline */
-  unsigned char trampoline_instr[0x80];
-  int trampoline_size
-      = fill_trampoline (trampoline_instr, func_addr, regs_addr);
-
+  unsigned char trampoline_instr[0x100];
+  int trampoline_size;
+  if(read_regs == 0)
+  {
+    struct symbol *func_sym = module->func_sym;
+    CORE_ADDR func_addr = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (func_sym));
+    CORE_ADDR regs_addr = module->regs_addr;
+    trampoline_size = fill_trampoline (trampoline_instr, func_addr, regs_addr);
+  }
+  else
+  {
+    CORE_ADDR mem_access_fun = module->out_value_addr;
+    trampoline_size = build_datawatch_tp(trampoline_instr, mem_access_fun, read_regs);
+  }
+  
   /* Allocate memory for the trampoline in the inferior.  */
   CORE_ADDR trampoline
   //     = allocate_trampoline (gdbarch, sizeof (trampoline_instr));
@@ -439,11 +556,32 @@ build_compile_trampoline (struct gdbarch *gdbarch,
     gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr);
     current_insn_addr += gdb_insn_length(gdbarch, current_insn_addr);
   }
-  
+  const gdb_byte dest_reg[] =
+    {0x64,0x6c,0x7c,0x74,0x5c,0x54,0x4c,0x44};
+  /* rsp  rbp  rdi  rsi  rbx  rdx  rcx  rax*/
+  /* r12  r13  r15  r14  r11  r10  r9   r8 */
+  if(read_regs & 0xFFFF0000)
+  {
+    for(int i = 16; i<32; i++)
+    {
+      if ( read_regs & 1<<i)
+      {
+        gdb_byte insn[5] = {0x48,0x8b,0x0,0x24,0x0};
+        if(i>=8)
+        {
+          insn[0]=0x4c;
+        }
+        insn[2]=dest_reg[i%8];
+        insn[4]=(gdb_byte) -8*(1+i-16);
+        target_write_memory(trampoline_end, insn,5);
+        trampoline_end += 5;
+      }
+    }
+  }
 
   /* Leave enough room for any instruction should another one
      be relocated here */
-  trampoline_size += 30;
+  // trampoline_size += 30;
   /* Fill the void with nops */
   if (gdb_insn_length (gdbarch, insn_addr) > 5)
     {
@@ -526,35 +664,50 @@ location_to_pc (const char *location)
   return addr;
 }
 
-/* The central function for the patch command. */
+/* The central function for the patch command. 
+   If read_regs != 0, location represents the memory_access function*/
 static void
-patch_code (const char *location, const char *code)
+patch_code (const char *location, const char *code, int read_regs)
 {
   struct gdbarch *gdbarch = target_gdbarch ();
+  struct compile_module *compile_module;
+  CORE_ADDR addr;
+  struct compile_module cm;
+  if(read_regs == 0)
+  {
+    /* Convert location to an instruction address.  */
+    addr = location_to_pc (location);
 
-  /* Convert location to an instruction address.  */
-  CORE_ADDR addr = location_to_pc (location);
-
-  /* Compile code.  */
-  enum compile_i_scope_types scope = COMPILE_I_SIMPLE_SCOPE;
-  compile_file_names fnames = compile_to_object (NULL, code, scope, addr);
-  // gdb::unlinker object_remover (fnames.object_file ());
-  // gdb::unlinker source_remover (fnames.source_file ());
-  /* Load compiled code into memory.  */
-  struct compile_module *compile_module
-      = compile_object_load (fnames, scope, NULL);
+    /* Compile code.  */
+    enum compile_i_scope_types scope = COMPILE_I_SIMPLE_SCOPE;
+    compile_file_names fnames = compile_to_object (NULL, code, scope, addr);
+    // gdb::unlinker object_remover (fnames.object_file ());
+    // gdb::unlinker source_remover (fnames.source_file ());
+    /* Load compiled code into memory.  */
+    compile_module = compile_object_load (fnames, scope, NULL);
+  }
+  else
+  {
+    addr = get_frame_pc (get_selected_frame (NULL));
+    /* We use out_value_addr to store the memory access function address */
+    compile_module = &cm;
+    compile_module->out_value_addr = location_to_pc (location);
+    compile_module->munmap_list_head = 0;
+  }
 
   /* Build a trampoline which calls the compiled code.  */
   // CORE_ADDR return_address = find_return_address (gdbarch, &addr, true);
   CORE_ADDR tp_address;
+
   CORE_ADDR return_address = find_return_address_amad3(gdbarch, &addr, &tp_address, false);
+
   if (addr != 0)
     {
       Patch *patch = new Patch (compile_module->munmap_list_head, addr);
       patch->read_original_insn(gdbarch);
 
       CORE_ADDR trampoline_address = build_compile_trampoline (
-          gdbarch, compile_module, patch, return_address);
+          gdbarch, compile_module, patch, return_address, read_regs);
 
       patch->trampoline_address = trampoline_address;
 
@@ -597,7 +750,7 @@ compile_patch_code_command (const char *arg, int from_tty)
       free (dup);
       error ("Missing the code argument for the patch code command.");
     }
-  patch_code (location, code);
+  patch_code (location, code, 0);
   free (dup);
 }
 
@@ -624,7 +777,7 @@ compile_patch_file_command (const char *arg, int from_tty)
   gdb::unique_xmalloc_ptr<char> abspath = gdb_abspath (source_file);
   std::string code_buf
       = string_printf ("#include \"%s\"\n", abspath.get ());
-  patch_code (location, code_buf.c_str ());
+  patch_code (location, code_buf.c_str (), 0);
   free (dup);
 }
 
@@ -635,6 +788,27 @@ compile_patch_command (const char *arg, int from_tty)
   compile_patch_code_command (arg, from_tty);
 }
 
+/* Handle the input from the 'patch dw' command.  The
+   "patch dw" command is used to patch in the code a 
+   memory checker for registers before an instruction */
+void
+compile_patch_dw_command (const char *arg, int from_tty)
+{
+  if (arg == NULL)
+    {
+      error ("No arguments were entered for the patch dw command.");
+    }
+  char *dup = strdup (arg);
+  const char *location = strtok (dup, " ");
+  const char *regs_str = strtok (NULL, "\0");
+  int read_registers = atoi(regs_str);
+  if(read_registers == 0)
+    {
+      error ("No registers read by the faulty instruction.");
+    }
+  patch_code (location, NULL, read_registers);
+  free (dup);
+}
 /* Handle the input from the 'patch where' command.  The
    "patch where" command is used to print the address of the next
    possible insertion from the address given as argument.  */
@@ -783,7 +957,7 @@ compile_patch_delete_command (const char *arg, int from_tty)
   if (index == -1)
   {
     auto it = all_patches.patches.begin ();
-    int i = 1;
+    int16_t i = 1;
     char index_string[10];
     for (; it != all_patches.patches.end (); it++)
       {

@@ -1081,6 +1081,14 @@ Usage: compile patch file [LOCATION] [FILENAME]"),
 	       &compile_patch_command_list);
   set_cmd_completer (c, filename_completer);
 
+  c = add_cmd ("dw", class_obscure, compile_patch_dw_command,
+	       _("\
+Insert a memory checker for registers on an instruction.\n\
+\n\
+Usage: compile patch file [MEMCHK_LOCATION] [READ_REGS]"),
+	       &compile_patch_command_list);
+  set_cmd_completer (c, filename_completer);
+
   add_cmd ("where", class_obscure, compile_patch_where_command,
 	   _("\
 Indicates where the next possible insertion is.\n\

@@ -27,6 +27,8 @@ extern void compile_patch_command(const char *arg, int from_tty);
 
 extern void compile_patch_where_command(const char *arg, int from_tty);
 
+extern void compile_patch_dw_command(const char *arg, int from_tty);
+
 /* Handle the input from the 'patch goto' command.  The
    "patch goto" command is used to replace an instruction with a jump
    to a specified location.  */
