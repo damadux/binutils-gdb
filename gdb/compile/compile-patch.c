@@ -118,10 +118,9 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
 }
 
 int
-build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int read_r_registers)
+build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_access_registers)
 {
   /* For now, only x64 architecture */
-  const int num_regs = 16;
   int i = 0;
   int stack_offset = 0;
 
@@ -154,54 +153,88 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int read
   buf[i++] = 0x9c; /* pushfq */ 
   
 
-  /* For eqch register : if the 64bits version is read,
-     put it first through the address checker */
-  for(int reg = 0; reg<num_regs; reg++)
-  {
-    if(read_r_registers & 1<<reg)
-    {
-      /* mov <reg_value>, %rdi */
-      buf[i++] = 0x48; 
-      buf[i++] = 0x8b; 
-      buf[i++] = 0x7c; 
-      buf[i++] = 0x24; 
-      buf[i++] = (gdb_byte) 0x08*(15-reg+1 + stack_offset); /* +1 for fq */
+  /* In mem_access_registers we store :
+    base : 4 bits
+    index : 4 bits
+    scale : 2 bits
+    disp : 8 bits
+    whether the access is simple or has a (index,scale) attribute : 1 bit */
 
-      /* absolute call memory_check() */
-      buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
-      buf[i++] = 0xb8;
-      memcpy (buf + i, &memory_check_function, 8);
-      i += 8;
-      buf[i++] = 0xff; /* callq *%rax */
-      buf[i++] = 0xd0;
-      /* push result on the stack */
-      buf[i++] = 0x50; /* push %rax */
-      stack_offset ++;
-    }
+  gdb_byte reg = mem_access_registers & 0xF;
+  /* mov <reg_value>, %rdi */
+  buf[i++] = 0x48; 
+  buf[i++] = 0x8b; 
+  buf[i++] = 0x7c; 
+  buf[i++] = 0x24; 
+  buf[i++] = (gdb_byte) 0x08*(15-reg+1 + stack_offset); /* +1 for fq */
+
+  gdb_byte idx = (mem_access_registers & 0xF0)>>4;
+  gdb_byte scale = (mem_access_registers & 0x300)>>(2); /* 0bXX000000 */
+  gdb_byte disp = (mem_access_registers & 0xFF000)>>(4*3);
+  gdb_byte mem_with_idx = (mem_access_registers & 0x1000000)>>(4*6);
+
+  if(mem_with_idx == 0)
+  /* A simple memory access : rsi = rdi + disp */
+  {
+    buf[i++] = 0x48; /* lea disp(%rdi), %rsi */
+    buf[i++] = 0x8d; 
+    buf[i++] = 0x77; 
+    buf[i++] = disp; 
   }
+  else
+  {
+    /* load the initial index register to rax, so that there is no interference 
+    if it was rdi or rsi. */
+    buf[i++] = 0x48; 
+    buf[i++] = 0x8b; 
+    buf[i++] = 0x44; 
+    buf[i++] = 0x24; 
+    buf[i++] = (gdb_byte) 0x08*(15-idx+1 + stack_offset); /* +1 for fq */
+
+    /* We copy the actual address to rsi and the base address to rdi.
+      the memory checker funciton will check that rsi is valid and correct rdi.
+      This is done because we cannot simply revert a lea instruction. */
+    /* lea disp(rdi,rax,scale), %rsi*/
+    if(reg<8)
+    {
+      buf[i++] = 0x48; /* 64 bit lea  */
+    }
+    else
+    {
+      buf[i++] = 0x4a; /* 64 bit lea with index reg rN */
+    }
+    buf[i++] = 0x8d; 
+    buf[i++] = 0x7c; /* ModR/M : to rsi + SIB w 8bit displacement */
+    buf[i++] = scale + 0x0 + 0x7; /* SIB : [scale 2| index(rax) 3| base(rdi) 3] */
+    buf[i++] = disp; 
+  }
+
+  /* absolute call memory_check() */
+  buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
+  buf[i++] = 0xb8;
+  memcpy (buf + i, &memory_check_function, 8);
+  i += 8;
+  buf[i++] = 0xff; /* callq *%rax */
+  buf[i++] = 0xd0;
+  /* push result on the stack */
+  buf[i++] = 0x50; /* push %rax */
+  stack_offset ++;
+
   /* I do not store all registers in a logical order 
      so that rsp and rbp are handled first / last */
   gdb_byte pop_insns[] =
     {0x5c,0x5d,0x5f,0x5e,0x5b,0x5a,0x59,0x58};
     // {0x58,0x59,0x5a,0x5b,0x5e,0x5f,0x5d,0x5c};
-  /* restore read 64 bits registers */
-  for(int pop_index = 15; pop_index>=0; pop_index--)
-  {
-    if(read_r_registers & (1<<pop_index))
-    {
-      if(pop_index>=8)
-      {
-        buf[i++] = 0x41;
-      }
-      buf[i++] = pop_insns[pop_index%8];
-    }
-  }
+  /* restore 64 bits read-only registers */
+  if(reg >= 8)
+    buf[i++] = 0x41;
+  buf[i++] = pop_insns[reg%8];
 
   buf[i++] = 0x9d; /* popfq */
   /* restore the other registers */
   for(int pop_index = 15; pop_index>=0; pop_index--)
   {
-    if(!(read_r_registers & (1<<pop_index)))
+    if(reg != pop_index)
     {
       if(pop_index>=8)
       {
@@ -521,14 +554,14 @@ CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int
 CORE_ADDR
 build_compile_trampoline (struct gdbarch *gdbarch,
                           struct compile_module *module, Patch *patch,
-                          CORE_ADDR return_address, int read_regs)
+                          CORE_ADDR return_address, int mem_access_regs)
 {
   CORE_ADDR insn_addr = patch->address;
 
   /* Build trampoline */
   unsigned char trampoline_instr[0x100];
   int trampoline_size;
-  if(read_regs == 0)
+  if(mem_access_regs == 0)
   {
     struct symbol *func_sym = module->func_sym;
     CORE_ADDR func_addr = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (func_sym));
@@ -538,7 +571,7 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   else
   {
     CORE_ADDR mem_access_fun = module->out_value_addr;
-    trampoline_size = build_datawatch_tp(trampoline_instr, mem_access_fun, read_regs);
+    trampoline_size = build_datawatch_tp(trampoline_instr, mem_access_fun, mem_access_regs);
   }
   
   /* Allocate memory for the trampoline in the inferior.  */
@@ -560,23 +593,20 @@ build_compile_trampoline (struct gdbarch *gdbarch,
     {0x64,0x6c,0x7c,0x74,0x5c,0x54,0x4c,0x44};
   /* rsp  rbp  rdi  rsi  rbx  rdx  rcx  rax*/
   /* r12  r13  r15  r14  r11  r10  r9   r8 */
-  if(read_regs & 0xFFFF0000)
+  if(mem_access_regs & (1<<20)) /* register access is read only */
   {
-    for(int i = 16; i<32; i++)
+    int reg = mem_access_regs&0xF;
+
+    gdb_byte insn[5] = {0x48,0x8b,0x0,0x24,0x0};
+    if(reg>=8)
     {
-      if ( read_regs & 1<<i)
-      {
-        gdb_byte insn[5] = {0x48,0x8b,0x0,0x24,0x0};
-        if(i>=8)
-        {
-          insn[0]=0x4c;
-        }
-        insn[2]=dest_reg[i%8];
-        insn[4]=(gdb_byte) -8*(1+i-16);
-        target_write_memory(trampoline_end, insn,5);
-        trampoline_end += 5;
-      }
+      insn[0]=0x4c;
     }
+    insn[2]=dest_reg[reg%8];
+    insn[4]=(gdb_byte) -8*(1+reg);
+    target_write_memory(trampoline_end, insn,5);
+    trampoline_end += 5;
+
   }
 
   /* Leave enough room for any instruction should another one
@@ -665,15 +695,15 @@ location_to_pc (const char *location)
 }
 
 /* The central function for the patch command. 
-   If read_regs != 0, location represents the memory_access function*/
+   If mem_access_regs != 0, location represents the memory_access function*/
 static void
-patch_code (const char *location, const char *code, int read_regs)
+patch_code (const char *location, const char *code, int mem_access_regs)
 {
   struct gdbarch *gdbarch = target_gdbarch ();
   struct compile_module *compile_module;
   CORE_ADDR addr;
   struct compile_module cm;
-  if(read_regs == 0)
+  if(mem_access_regs == 0)
   {
     /* Convert location to an instruction address.  */
     addr = location_to_pc (location);
@@ -707,7 +737,7 @@ patch_code (const char *location, const char *code, int read_regs)
       patch->read_original_insn(gdbarch);
 
       CORE_ADDR trampoline_address = build_compile_trampoline (
-          gdbarch, compile_module, patch, return_address, read_regs);
+          gdbarch, compile_module, patch, return_address, mem_access_regs);
 
       patch->trampoline_address = trampoline_address;
 
