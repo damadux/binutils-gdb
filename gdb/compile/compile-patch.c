@@ -367,8 +367,8 @@ CORE_ADDR
 allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigill_idx)
 {
   const int page_size = 0x1000;
-  static CORE_ADDR trampoline_mmap_address = 0x555555500000; // 0x100000;
-  static CORE_ADDR trampoline_address = 0;
+  static CORE_ADDR trampoline_mmap_address = (addr>>20)<<20;
+  static CORE_ADDR trampoline_address = 0;   
   const unsigned prot
       = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
 
@@ -376,10 +376,11 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
   if (size < 0)
     {
       trampoline_address = 0;
-      trampoline_mmap_address = 0x100000;
+      trampoline_mmap_address = 1; // It will get reset properly on the next call
       return 0;
     }
-
+  if (trampoline_mmap_address == 1)
+    trampoline_mmap_address = (addr>>20)<<20;
   int32_t difference = 0;
   /* Initialize tp address */
   if (trampoline_address == 0)
@@ -402,9 +403,10 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
     {
       fprintf_filtered (
           gdb_stderr,
-          "E.Jump pad too far from instruction for jump back (offset 0x%" PRIx64
+          "E.Jump pad too far from instruction for 5 byte jump (offset 0x%" PRIx64
           " > int32). \n",
           pre_offset);
+      fprintf_filtered(gdb_stdout, "tp addr 0x%lx addr 0x%lx \n", trampoline_address, addr);
       return 0;
     }
     int32_t pre_offset32 = (int32_t) pre_offset;
@@ -422,7 +424,7 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
         memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
       }
     }
-    printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
+    // printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
 
     difference = offset - pre_offset32;
     // printf("difference %x \n", difference);
