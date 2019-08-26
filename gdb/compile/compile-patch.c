@@ -361,14 +361,17 @@ find_return_address_amad3 (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
 
 /* Allocate some space for a trampoline.
    mmap is done one page at a time, 
-   a larger trampoline cannot be allocated.  */
-/* sigill_idx is a binary array of size 3 coded as an int [true, false, true] -> 0b101 = 5*/
+   a trampoline larger than a page could not be allocated.  */
+/* sigill_idx is a binary array of size 3 coded as an int [true, false, true] -> 0b101 = 5
+   It describes which bytes correspond to the beggining of an instruction*/
 CORE_ADDR
 allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigill_idx)
 {
-  const int page_size = 0x1000;
+  const int page_size = 0x1000; /* x86 specific */
+  /* Place the trampolines before the instructions but within range 
+     of a 5 bytes jump (32 bits offset) */
   static CORE_ADDR trampoline_mmap_address = (addr>>20)<<20;
-  static CORE_ADDR trampoline_address = 0;   
+  static CORE_ADDR trampoline_address = 0;
   const unsigned prot
       = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
 
@@ -395,9 +398,20 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
     trampoline_address += size;
   }
   
-
+  /* If the replaced instruction is shorter than 5 bytes :
+     We replace the instruction with a 5 byte jump anyway, 
+     but we replace the beginning of every other instruction
+     within the next 4 bytes by an illegal instruction, which 
+     is then catched by a handler. */
+  /* We treat the case where an instruction starts on the 5th byte differently.
+     For every other case, we simply use the illegal instruction 0x6,
+     but in the case of a last byte replacement, we may need to check several 
+     illegal instructions as it corresponds to the most significative byte of
+     the jump offset */
   if (sigill_idx != 0 && sigill_idx < 0b1000)
   {
+    /* We define a pre offset which is the regular offset if no illegal instruction is added,
+       and then we add the different illegal instructions and check if it still works. */
     int64_t pre_offset = trampoline_address - addr - 5;
     if (pre_offset > INT_MAX || pre_offset < INT_MIN)
     {
@@ -406,12 +420,13 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
           "E.Jump pad too far from instruction for 5 byte jump (offset 0x%" PRIx64
           " > int32). \n",
           pre_offset);
-      fprintf_filtered(gdb_stdout, "tp addr 0x%lx addr 0x%lx \n", trampoline_address, addr);
+      fprintf_filtered(gdb_stdout, "tp addr 0x%lx addr 0x%lx \n",
+                                        trampoline_address, addr);
       return 0;
     }
     int32_t pre_offset32 = (int32_t) pre_offset;
-    // printf("address %lx pre_offset %x \n", trampoline_address, (unsigned int) pre_offset32);
     int32_t offset = 0;
+    /* Default illegal instruction */
     gdb_byte ill_insn = 0x6;
     for(int i = 0; i<4; i++)
     {
@@ -424,16 +439,15 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
         memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
       }
     }
-    // printf("offset %x pre_offset %x \n", (unsigned int) offset, (unsigned int) pre_offset32);
 
     difference = offset - pre_offset32;
-    // printf("difference %x \n", difference);
+    /* We do have freedom on the most significant byte of the offset,
+       so make sure that we don't override any previous jump pad */
     if(difference < 0)
     {
       difference += 0x1<<(8*3);
       offset += 0x1<<(8*3);
     }
-    // printf("difference %x offset %x \n", (unsigned int) difference, (unsigned int) offset);
 
     int skip_pages = (difference + trampoline_address - trampoline_mmap_address) / page_size;
     if(skip_pages > 0)
@@ -456,13 +470,12 @@ allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigi
     {
       trampoline_address += difference % page_size;
     }
-  // printf("address %lx difference %x \n", trampoline_address, (unsigned int) difference);
   return trampoline_address;
 }
 
 /* Is this page available ? If so map it */
 CORE_ADDR
-mmappable(gdbarch *gdbarch, CORE_ADDR addr)
+can_mmap(gdbarch *gdbarch, CORE_ADDR addr)
 {
   const int prot = 7;
   const int trampoline_size = 0x100;
@@ -503,7 +516,7 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
       memcpy(((gdb_byte *)&offset)+3,&ill_insns[idx],1);
       CORE_ADDR tp_address = addr+offset+5;
       // Not unmappable, TODO : make it cleanable
-      if (mmappable(gdbarch,tp_address))
+      if (can_mmap(gdbarch,tp_address))
       {
         return tp_address;
       }
