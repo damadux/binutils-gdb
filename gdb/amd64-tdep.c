@@ -1937,7 +1937,6 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
     {
       rel32 = extract_signed_integer (insn + offset, arg_len, byte_order);
       newrel = (oldloc - *to) + rel32 - (4 + offset_diff - arg_len);
-      printf("Newrel %lx rel32 %lx \n", newrel, rel32);
       store_signed_integer (insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog,

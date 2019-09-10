@@ -31,8 +31,14 @@
 #include "compile-object-load.h"
 #include "patch.h"
 #include "cli/cli-utils.h"
+#include <unordered_map>
+#include <map>
 
+#define FIXED_POS 0
+#define ANYWHERE 1
+#define JUST_ASKING 2
 PatchVector all_patches;
+Patch *current_patch;
 
 /* Fills the trampoline but does not relocate the replaced instruction */
 int
@@ -42,6 +48,8 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
 
   int i = 0;
   /* save registers */
+  /* flags may cause bug when stepped over */
+  trampoline_instr[i++] = 0x9c; /* pushfq */ 
   trampoline_instr[i++] = 0x54; /* push %rsp */
   trampoline_instr[i++] = 0x55; /* push %rbp */
   trampoline_instr[i++] = 0x57; /* push %rdi */
@@ -66,8 +74,7 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x51; /* push %r9 */
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x50; /* push %r8 */
-  /* may cause bug when stepped over */
-  trampoline_instr[i++] = 0x9c; /* pushfq */ 
+
       
 
   /* provide gdb_expr () arguments */
@@ -88,7 +95,6 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0xd0;
 
   /* restore registers */
-  trampoline_instr[i++] = 0x9d; /* popfq */
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x58; /* pop %r8 */
   trampoline_instr[i++] = 0x41;
@@ -113,6 +119,8 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x5f; /* pop %rdi */
   trampoline_instr[i++] = 0x5d; /* pop %rbp */
   trampoline_instr[i++] = 0x5c; /* pop %rsp */
+  trampoline_instr[i++] = 0x9d; /* popfq */
+
 
   return i;
 }
@@ -120,11 +128,15 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
 int
 build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_access_registers)
 {
+  /* table for fast log2 calculation */
+  const gdb_byte log_table[]={0b0,0b0,0b1,0b0,0b10,0b0,0b0,0b11};
   /* For now, only x64 architecture */
   int i = 0;
   int stack_offset = 0;
 
   /* save registers */
+  /* flags may cause a bug when stepped over */
+  buf[i++] = 0x9c; /* pushfq */ 
   buf[i++] = 0x54; /* push %rsp */
   buf[i++] = 0x55; /* push %rbp */
   buf[i++] = 0x57; /* push %rdi */
@@ -149,8 +161,7 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   buf[i++] = 0x51; /* push %r9 */
   buf[i++] = 0x41;
   buf[i++] = 0x50; /* push %r8 */
-  /* may cause bug when stepped over */
-  buf[i++] = 0x9c; /* pushfq */ 
+
   
 
   /* In mem_access_registers we store :
@@ -166,20 +177,33 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   buf[i++] = 0x8b; 
   buf[i++] = 0x7c; 
   buf[i++] = 0x24; 
-  buf[i++] = (gdb_byte) 0x08*(15-reg+1 + stack_offset); /* +1 for fq */
-
+  buf[i++] = (gdb_byte) 0x8*(15-reg + stack_offset); /* used to have +1 for fq */
+  
   gdb_byte idx = (mem_access_registers & 0xF0)>>4;
-  gdb_byte scale = (mem_access_registers & 0x300)>>(2); /* 0bXX000000 */
-  gdb_byte disp = (mem_access_registers & 0xFF000)>>(4*3);
-  gdb_byte mem_with_idx = (mem_access_registers & 0x1000000)>>(4*6);
+  gdb_byte scale = (mem_access_registers & 0xF00)>>8; 
+  gdb_byte scale_log = log_table[scale];
+  int16_t disp = (mem_access_registers & 0xFFFF000)>>(4*3);
+  gdb_byte mem_with_idx = (mem_access_registers & 0x10000000)>>(4*7);
+  gdb_byte multiple_mem_operands = (mem_access_registers & 0x40000000)>>30;
 
   if(mem_with_idx == 0)
   /* A simple memory access : rsi = rdi + disp */
   {
     buf[i++] = 0x48; /* lea disp(%rdi), %rsi */
-    buf[i++] = 0x8d; 
-    buf[i++] = 0x77; 
-    buf[i++] = disp; 
+    buf[i++] = 0x8d;
+    if((disp >= 0x80) || (disp < -0x80))
+    {
+      buf[i++]=0xb7;
+      memcpy (buf + i, &disp, 2);
+      i+=2;
+      buf[i++]=0;
+      buf[i++]=0;
+    }
+    else
+    {
+      buf[i++] = 0x77; 
+      buf[i++] = (gdb_byte) disp; 
+    }
   }
   else
   {
@@ -189,23 +213,16 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
     buf[i++] = 0x8b; 
     buf[i++] = 0x44; 
     buf[i++] = 0x24; 
-    buf[i++] = (gdb_byte) 0x08*(15-idx+1 + stack_offset); /* +1 for fq */
+    buf[i++] = (gdb_byte) 0x08*(15-idx + stack_offset); /* used to be +1 for the flags */
 
     /* We copy the actual address to rsi and the base address to rdi.
       the memory checker funciton will check that rsi is valid and correct rdi.
       This is done because we cannot simply revert a lea instruction. */
-    /* lea disp(rdi,rax,scale), %rsi*/
-    if(reg<8)
-    {
-      buf[i++] = 0x48; /* 64 bit lea  */
-    }
-    else
-    {
-      buf[i++] = 0x4a; /* 64 bit lea with index reg rN */
-    }
+    /* lea disp(rdi,rax,scale_log), %rsi*/
+    buf[i++] = 0x48; /* 64 bit lea  */
     buf[i++] = 0x8d; 
-    buf[i++] = 0x7c; /* ModR/M : to rsi + SIB w 8bit displacement */
-    buf[i++] = scale + 0x0 + 0x7; /* SIB : [scale 2| index(rax) 3| base(rdi) 3] */
+    buf[i++] = 0x74; /* ModR/M : to rsi + SIB w 8bit displacement */
+    buf[i++] = (scale_log<<6) + 0x0 + 0x7; /* SIB : [scale 2| index(rax) 3| base(rdi) 3] */
     buf[i++] = disp; 
   }
 
@@ -220,21 +237,54 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   buf[i++] = 0x50; /* push %rax */
   stack_offset ++;
 
+  if(multiple_mem_operands == 1)
+  /* An instruction with two differents registers accessed i.e. movs or compsd */
+  {
+    /* Do the same thing with the second register
+       disp is necessarily 0 */
+    
+    /* mov <idx> rdi */
+    buf[i++] = 0x48; 
+    buf[i++] = 0x8b; 
+    buf[i++] = 0x7c; 
+    buf[i++] = 0x24; 
+    buf[i++] = (gdb_byte) 0x8*(15-idx + stack_offset); 
+    /* mov rdi rsi (disp = 0)*/
+    buf[i++] = 0x48; 
+    buf[i++] = 0x89; 
+    buf[i++] = 0xfe; 
+    /* absolute call memory_check() */
+    buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
+    buf[i++] = 0xb8;
+    memcpy (buf + i, &memory_check_function, 8);
+    i += 8;
+    buf[i++] = 0xff; /* callq *%rax */
+    buf[i++] = 0xd0;
+    /* push result on the stack */
+    buf[i++] = 0x50; /* push %rax */
+    stack_offset ++;
+  }
+  
   /* I do not store all registers in a logical order 
      so that rsp and rbp are handled first / last */
   gdb_byte pop_insns[] =
     {0x5c,0x5d,0x5f,0x5e,0x5b,0x5a,0x59,0x58};
     // {0x58,0x59,0x5a,0x5b,0x5e,0x5f,0x5d,0x5c};
-  /* restore 64 bits read-only registers */
+  /* restore the modified register(s) */
+  if(multiple_mem_operands == 1)
+  {
+    if(idx >= 8)
+      buf[i++] = 0x41;
+    buf[i++] = pop_insns[idx%8];
+  }
   if(reg >= 8)
     buf[i++] = 0x41;
   buf[i++] = pop_insns[reg%8];
 
-  buf[i++] = 0x9d; /* popfq */
   /* restore the other registers */
   for(int pop_index = 15; pop_index>=0; pop_index--)
   {
-    if(reg != pop_index)
+    if(reg != pop_index && (multiple_mem_operands == 0 || idx!=pop_index))
     {
       if(pop_index>=8)
       {
@@ -251,6 +301,8 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
       buf[i++] = 0x08; 
     }
   }
+  buf[i++] = 0x9d; /* popfq */
+
 
   return i;
 }
@@ -359,119 +411,6 @@ find_return_address_amad3 (struct gdbarch *gdbarch, CORE_ADDR *insn_addr,
   
 }
 
-/* Allocate some space for a trampoline.
-   mmap is done one page at a time, 
-   a trampoline larger than a page could not be allocated.  */
-/* sigill_idx is a binary array of size 3 coded as an int [true, false, true] -> 0b101 = 5
-   It describes which bytes correspond to the beggining of an instruction*/
-CORE_ADDR
-allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr, int sigill_idx)
-{
-  const int page_size = 0x1000; /* x86 specific */
-  /* Place the trampolines before the instructions but within range 
-     of a 5 bytes jump (32 bits offset) */
-  static CORE_ADDR trampoline_mmap_address = (addr>>20)<<20;
-  static CORE_ADDR trampoline_address = 0;
-  const unsigned prot
-      = GDB_MMAP_PROT_READ | GDB_MMAP_PROT_WRITE | GDB_MMAP_PROT_EXEC;
-
-  /* On inferior exit, reset the static variables. */
-  if (size < 0)
-    {
-      trampoline_address = 0;
-      trampoline_mmap_address = 1; // It will get reset properly on the next call
-      return 0;
-    }
-  if (trampoline_mmap_address == 1)
-    trampoline_mmap_address = (addr>>20)<<20;
-  int32_t difference = 0;
-  /* Initialize tp address */
-  if (trampoline_address == 0)
-    {
-      /* Allocate a new chunk of memory of one page*/ 
-      trampoline_address = gdbarch_infcall_mmap (
-          gdbarch, trampoline_mmap_address, page_size, prot);
-      trampoline_mmap_address = trampoline_address;
-    }
-  else
-  {
-    trampoline_address += size;
-  }
-  
-  /* If the replaced instruction is shorter than 5 bytes :
-     We replace the instruction with a 5 byte jump anyway, 
-     but we replace the beginning of every other instruction
-     within the next 4 bytes by an illegal instruction, which 
-     is then catched by a handler. */
-  /* We treat the case where an instruction starts on the 5th byte differently.
-     For every other case, we simply use the illegal instruction 0x6,
-     but in the case of a last byte replacement, we may need to check several 
-     illegal instructions as it corresponds to the most significative byte of
-     the jump offset */
-  if (sigill_idx != 0 && sigill_idx < 0b1000)
-  {
-    /* We define a pre offset which is the regular offset if no illegal instruction is added,
-       and then we add the different illegal instructions and check if it still works. */
-    int64_t pre_offset = trampoline_address - addr - 5;
-    if (pre_offset > INT_MAX || pre_offset < INT_MIN)
-    {
-      fprintf_filtered (
-          gdb_stderr,
-          "E.Jump pad too far from instruction for 5 byte jump (offset 0x%" PRIx64
-          " > int32). \n",
-          pre_offset);
-      fprintf_filtered(gdb_stdout, "tp addr 0x%lx addr 0x%lx \n",
-                                        trampoline_address, addr);
-      return 0;
-    }
-    int32_t pre_offset32 = (int32_t) pre_offset;
-    int32_t offset = 0;
-    /* Default illegal instruction */
-    gdb_byte ill_insn = 0x6;
-    for(int i = 0; i<4; i++)
-    {
-      if(1<<i & sigill_idx)
-      {
-        memcpy( ((gdb_byte *) &offset) + i, &ill_insn, 1);
-      }
-      else
-      {
-        memcpy( ((gdb_byte *) &offset) + i, ((gdb_byte *) &pre_offset32) + i, 1);
-      }
-    }
-
-    difference = offset - pre_offset32;
-    /* We do have freedom on the most significant byte of the offset,
-       so make sure that we don't override any previous jump pad */
-    if(difference < 0)
-    {
-      difference += 0x1<<(8*3);
-      offset += 0x1<<(8*3);
-    }
-
-    int skip_pages = (difference + trampoline_address - trampoline_mmap_address) / page_size;
-    if(skip_pages > 0)
-    {
-      trampoline_address = 0;
-      trampoline_mmap_address += (skip_pages-1)*page_size;
-    }
-  }
-  if (trampoline_address == 0
-      || trampoline_address + size > trampoline_mmap_address)
-    {
-      /* Allocate a new chunk of memory of one page*/
-      trampoline_mmap_address+=page_size;
-      trampoline_address = gdbarch_infcall_mmap (
-          gdbarch, trampoline_mmap_address, page_size, prot);
-      trampoline_mmap_address = trampoline_address;
-      trampoline_address += (difference + trampoline_address - trampoline_mmap_address) % page_size;
-    }
-  else
-    {
-      trampoline_address += difference % page_size;
-    }
-  return trampoline_address;
-}
 
 /* Is this page available ? If so map it */
 CORE_ADDR
@@ -481,32 +420,143 @@ can_mmap(gdbarch *gdbarch, CORE_ADDR addr)
   const int trampoline_size = 0x100;
   const int page_size = 0x1000;
   CORE_ADDR mmapped_area = gdbarch_infcall_mmap(gdbarch, addr, trampoline_size, prot);
-  if(mmapped_area + page_size > addr+trampoline_size && mmapped_area <= addr)
+  if(mmapped_area + page_size > addr && mmapped_area <= addr)
   {
+    if(mmapped_area + page_size < addr+trampoline_size)
+    {
+      CORE_ADDR second_mmap = gdbarch_infcall_mmap(gdbarch, mmapped_area + page_size, trampoline_size, prot);
+      if(second_mmap == mmapped_area + page_size)
+      {
+        return mmapped_area;
+      }
+      else
+      {
+        gdbarch_infcall_munmap(gdbarch,mmapped_area,page_size);
+        gdbarch_infcall_munmap(gdbarch,second_mmap,page_size);
+        return (CORE_ADDR) 0;
+      }
+    }
     return mmapped_area;
+  }
+  // printf("MMap Failed : asked for 0x%lx received 0x%lx \n", addr, mmapped_area);
+  gdbarch_infcall_munmap(gdbarch,mmapped_area,page_size);
+  return (CORE_ADDR) 0;
+}
+
+CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_policy)
+{
+  static std::unordered_map<CORE_ADDR, std::map<CORE_ADDR, CORE_ADDR> *> page_map;
+  const unsigned long tp_size = 0x100;
+  const unsigned int page_size = 0x1000;
+  CORE_ADDR page_address = (tp_address >> 12) << 12; /* Assuming a page size of 0x1000 !*/
+  
+  // printf("Address 0x%lx Page address 0x%lx Policy %d\n",tp_address, page_address, pos_policy);
+  if(pos_policy == FIXED_POS)
+  {
+    CORE_ADDR lower_bound = page_address;
+    CORE_ADDR upper_bound = page_address + page_size;
+    // printf("Address 0x%lx Page address 0x%lx \n",tp_address, page_address);
+    if (page_map.find(page_address) != page_map.end())
+    {
+      std::map<CORE_ADDR, CORE_ADDR> *tp_map = page_map[page_address];
+      auto it = tp_map->upper_bound(tp_address); /* first element after tp_address */
+      
+      if(it == tp_map->end())
+      {
+        auto rit = tp_map->rbegin();
+        lower_bound = rit->second;
+      }
+      else
+      {
+        upper_bound = it->first;
+        lower_bound = --it->second;
+        if(lower_bound > upper_bound)
+        {
+          lower_bound = page_address;
+        }
+      }
+      // printf(" Lower bound is 0x%lx Upper : 0x%lx \n", lower_bound, upper_bound);
+      if(lower_bound<=tp_address && upper_bound>tp_address+ tp_size)
+      {
+        tp_map->insert({tp_address, tp_address+tp_size});
+        return tp_address;
+      }
+      /* Memory is already taken by another jump pad */
+      return 0;
+    }
+    if(can_mmap(gdbarch, tp_address))
+    {
+      page_map.insert({page_address, new std::map<CORE_ADDR, CORE_ADDR>()});
+      page_map[page_address]->insert({tp_address, tp_address + tp_size});
+      // printf("Std map size : %ld with new page address 0x%lx \n", page_map.size(), page_address);
+      return tp_address;
+    }
+    return 0;
   }
   else
   {
-    gdbarch_infcall_munmap(gdbarch,addr,page_size);
-    return (CORE_ADDR) 0;
+    while(1)
+    {
+      if (page_map.find(page_address) != page_map.end())
+      {
+        auto tp_map = page_map[page_address];
+        auto rit = tp_map->rbegin();
+        CORE_ADDR lower_bound = rit->second;
+        // printf("Lower bound at page address 0x%lx : 0x%lx\n", page_address, lower_bound);
+        if(lower_bound + tp_size > page_address + page_size)
+        {
+          page_address+=page_size;
+          continue;
+        }
+        if (pos_policy != JUST_ASKING)
+        {
+          page_map[page_address]->insert({lower_bound, lower_bound + tp_size});
+        }
+        return lower_bound;
+      }
+      if(can_mmap(gdbarch, page_address))
+      {
+        // printf("Inserting new page 0x%lx \n", page_address);
+        page_map.insert({page_address, new std::map<CORE_ADDR, CORE_ADDR>()});
+        if (pos_policy != JUST_ASKING)
+        {
+          page_map[page_address]->insert({page_address, page_address + tp_size});
+        }
+        else
+        {
+          page_map[page_address]->insert({page_address-1, page_address});
+        }
+        return page_address;
+      }
+      else
+      {
+        error(_("ERROR : Unable to mmap a new region."));
+      }
+    }
   }
+  return 0;
 }
 
+/* Allocate some space for a trampoline for a regular 5 byte jump. */
+CORE_ADDR
+allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr)
+{
+  CORE_ADDR minimum_address = ((addr>>29) - 0x1)<<29;
+  CORE_ADDR tp_address = try_put_trampoline(gdbarch, minimum_address, ANYWHERE);
+  
+  if(tp_address == 0)
+  {
+    error(_("ERROR : Failed to allocate a trampoline."));
+  }
+  return tp_address;
+}
 
 /* Choose where to put the trampoline */
 CORE_ADDR
 place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
 {
   const gdb_byte ill_insns[14] = {6, 7, 14, 22, 23, 30, 31, 39, 47, 55, 63, 96, 97, 98};
-  int last_insn_index = 0; // between 1 and 4
-  for(int i = 0; i<5; i++)
-  {
-    if(lengths[4-i] > 0)
-    {
-      last_insn_index = 4-i;
-      break;
-    }
-  }
+
   if(lengths[4] > 0) // insn beginning on 5th byte
   {
     int32_t offset = 0;
@@ -516,7 +566,7 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
       memcpy(((gdb_byte *)&offset)+3,&ill_insns[idx],1);
       CORE_ADDR tp_address = addr+offset+5;
       // Not unmappable, TODO : make it cleanable
-      if (can_mmap(gdbarch,tp_address))
+      if (try_put_trampoline(gdbarch,tp_address, FIXED_POS))
       {
         return tp_address;
       }
@@ -525,13 +575,36 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR addr, int lengths[])
   }
   else
   {
-
-    CORE_ADDR tp_address = allocate_trampoline(gdbarch, 0x100, addr, last_insn_index);
-    // printf("tp address %lx offset %lx \n", tp_address, tp_address - addr - 5);
-    return tp_address;
+    CORE_ADDR minimum_address = ((addr>>29) - 0x1)<<29;
+    CORE_ADDR tp_address = try_put_trampoline(gdbarch, minimum_address, JUST_ASKING);
+    int32_t preoffset = tp_address - (addr + 5) ;
+    int32_t offset = preoffset;
+    /* Default illegal instruction */
+    gdb_byte ill_insn = 0x6;
+    for (int i = 1; i< 5; i++)
+    {
+      if(lengths[i]>0)
+      {
+        memcpy( ((gdb_byte *) &offset) + i, &ill_insn, 1);
+      }
+    }
+    tp_address = addr + offset + 5;
+    for(int i = 0; i<255; i++)
+    {
+      /* We increment the most significant byte */
+      offset+=1<<(8*3); 
+      tp_address = addr + offset + 5;
+      if(tp_address >= 0x800000000000)
+      {
+        // printf("offset 0x%x original offset 0x%x tp_addr 0x%lx original 0x%lx\n", offset, preoffset, tp_address, addr + 5+ preoffset);
+        continue;
+      }
+      if(try_put_trampoline(gdbarch, tp_address, FIXED_POS))
+      {
+        return tp_address;
+      }
+    }
   }
-
-  error(_("No insn on final byte"));
   return (CORE_ADDR) 0;
 }
 
@@ -560,7 +633,7 @@ CORE_ADDR custom_trampoline(struct gdbarch *gdbarch, CORE_ADDR insn_address, int
 {
   if(gdb_insn_length(gdbarch,insn_address)>=5)
   {
-    return allocate_trampoline(gdbarch,size, 0, 0);
+    return allocate_trampoline(gdbarch,size, insn_address);
   }
   
   return analyse_layout(gdbarch, insn_address);
@@ -600,43 +673,55 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   CORE_ADDR relocation_address = trampoline + trampoline_size;
   CORE_ADDR trampoline_end = relocation_address;
   CORE_ADDR current_insn_addr = insn_addr;
-  while(current_insn_addr < insn_addr +5){
-    gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr);
+  /* Relocate the first instruction */
+  gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr);
     current_insn_addr += gdb_insn_length(gdbarch, current_insn_addr);
-  }
+  /* Restore the register to its previous value */
   const gdb_byte dest_reg[] =
     {0x64,0x6c,0x7c,0x74,0x5c,0x54,0x4c,0x44};
   /* rsp  rbp  rdi  rsi  rbx  rdx  rcx  rax*/
   /* r12  r13  r15  r14  r11  r10  r9   r8 */
-  if(mem_access_regs & (1<<20)) /* register access is read only */
+  if((mem_access_regs>>29) & 1) /* register access is read only */
   {
     int reg = mem_access_regs&0xF;
-
-    gdb_byte insn[5] = {0x48,0x8b,0x0,0x24,0x0};
-    if(reg>=8)
+    int offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
+    gdb_byte insn[8] = {0x48,0x8b,0x0,0x24,0x0,0x0,0x0,0x0};
+    if(reg>=8) /* We need a 32 bit disp. Only valid if offset <= -128 (reg>=14) */
     {
       insn[0]=0x4c;
+      insn[2]=dest_reg[reg%8]+0x40;
+      memcpy(insn+4, &offset, 4);
+      target_write_memory(trampoline_end, insn,8);
+      trampoline_end += 8;
     }
-    insn[2]=dest_reg[reg%8];
-    insn[4]=(gdb_byte) -8*(1+reg);
-    target_write_memory(trampoline_end, insn,5);
-    trampoline_end += 5;
-
+    else
+    {
+      insn[2]=dest_reg[reg%8];
+      insn[4]=(gdb_byte) offset;
+      target_write_memory(trampoline_end, insn,5);
+      trampoline_end += 5;
+    }
+    
+  }
+  /* Relocate the other instructions */
+  while(current_insn_addr < insn_addr +5){
+    gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr);
+    current_insn_addr += gdb_insn_length(gdbarch, current_insn_addr);
   }
 
   /* Leave enough room for any instruction should another one
      be relocated here */
   // trampoline_size += 30;
   /* Fill the void with nops */
-  if (gdb_insn_length (gdbarch, insn_addr) > 5)
-    {
-      const unsigned char NOP_buffer[]
-          = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-              0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
-      target_write_memory (
-          relocation_address + gdb_insn_length (gdbarch, insn_addr),
-          NOP_buffer, 15 - gdb_insn_length (gdbarch, insn_addr));
-    }
+  // if (gdb_insn_length (gdbarch, insn_addr) > 5)
+  //   {
+  //     const unsigned char NOP_buffer[]
+  //         = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+  //             0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+  //     target_write_memory (
+  //         relocation_address + gdb_insn_length (gdbarch, insn_addr),
+  //         NOP_buffer, 15 - gdb_insn_length (gdbarch, insn_addr));
+  //   }
 
   patch->relocated_insn_address = relocation_address;
 
@@ -648,8 +733,9 @@ build_compile_trampoline (struct gdbarch *gdbarch,
       fprintf_filtered (
           gdb_stderr,
           "E.Jump pad too far from instruction for jump back (offset 0x%" PRIx64
-          " > int32). \n",
-          long_jump_offset);
+          " > int32). \n\
+          Jump to 0x%lx from 0x%lx \n",
+          long_jump_offset, return_address, trampoline_end);
       return 0;
     }
 
@@ -657,7 +743,6 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   unsigned char jmp_back[5] = { 0xe9, 0, 0, 0, 0 };
   memcpy (jmp_back + 1, &jmp_offset, 4);
   target_write_memory (trampoline_end, jmp_back, 5);
-
   return trampoline;
 }
 
@@ -677,7 +762,7 @@ patch_jump (CORE_ADDR addr, CORE_ADDR trampoline_address,
     }
 
   int32_t jump_offset = (int32_t)long_jump_offset;
-  fprintf_filtered (gdb_stdlog, "jump offset %x from %lx to %lx \n",
+  fprintf_filtered (gdb_stdlog, "jump offset 0x%x from 0x%lx to 0x%lx \n",
                     jump_offset, addr, trampoline_address);
   unsigned char jump_insn[] = { 0xe9, 0, 0, 0, 0 };
   memcpy (jump_insn + 1, &jump_offset, 4);
@@ -755,11 +840,17 @@ patch_code (const char *location, const char *code, int mem_access_regs)
           gdbarch, compile_module, patch, return_address, mem_access_regs);
 
       patch->trampoline_address = trampoline_address;
-
+      
       /* Patch in the code the jump to the trampoline.  */
       if (trampoline_address != 0
           && patch_jump (addr, trampoline_address, gdbarch) == 0)
         {
+          if(current_patch != NULL)
+          {
+            /* We are in a sigill handling situation, 
+               we need to update the previous patch's data */
+            current_patch->read_original_insn(gdbarch);
+          }
           all_patches.add (patch);
         }
       else
@@ -1063,7 +1154,7 @@ void
 reset_patch_data (struct inferior *inferior)
 {
   /* Reset the mmap values for trampolines */
-  allocate_trampoline (NULL, -1, 0, 0);
+  // allocate_trampoline (NULL, -1, 0, 0);
 
   /* Delete all live patches object */
   auto it = all_patches.patches.begin ();
@@ -1084,7 +1175,6 @@ step_1 (int skip_subroutines, int single_inst, const char *count_string);
 void
 step_command (const char *count_string, int from_tty);
 
-
 void
 patch_sigill_handler(const char *arg, int from_tty)
 {
@@ -1097,17 +1187,18 @@ patch_sigill_handler(const char *arg, int from_tty)
     // printf("Address : %lx \n", sig_addr);
       /* Find which patch causes the problem */
     auto it = all_patches.patches.begin ();
-    
+    printf("Sigill hit : handling \n");
     for (; it != all_patches.patches.end (); it++)
       {
         if (it->active && it->patch->address<=sig_addr && sig_addr<it->patch->address+5)
           {
+            current_patch = it->patch;
             int offset = sig_addr - it->patch->address;
             /* Reposition instruction */
             
             target_read_memory(sig_addr,buffer, 4);
             target_write_memory(sig_addr,it->patch->original_insn + offset,5-offset);
-            // printf("Corrected ! %hx \n", it->patch->original_insn[offset]);//,it->patch->original_insn[2],it->patch->original_insn[3],it->patch->original_insn[4] );
+            printf("Corrected ! %hx \n", it->patch->original_insn[offset]);//,it->patch->original_insn[2],it->patch->original_insn[3],it->patch->original_insn[4] );
             /* step and rewrite */
             // step_command(NULL,0);
             break;
@@ -1116,8 +1207,12 @@ patch_sigill_handler(const char *arg, int from_tty)
   }
   else
   {
-    // printf("Stepped now rewrite %lx   %hx!\n", sig_addr, buffer[0]);
-    target_write_memory(sig_addr,buffer,4);
+    if(current_patch != NULL || from_tty != 42)
+    {
+      current_patch = NULL;
+      printf("Stepped now rewrite %lx   %hx!\n", sig_addr, buffer[0]);
+      target_write_memory(sig_addr,buffer,4);
+    }
   }
     /* RESUME */
 } 

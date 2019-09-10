@@ -937,7 +937,7 @@ next_command (const char *count_string, int from_tty)
 
 /* Likewise, but step only one instruction.  */
 
-void
+static void
 stepi_command (const char *count_string, int from_tty)
 {
   step_1 (0, 1, count_string);
