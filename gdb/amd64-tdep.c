@@ -1937,6 +1937,10 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
     {
       rel32 = extract_signed_integer (insn + offset, arg_len, byte_order);
       newrel = (oldloc - *to) + rel32 - (4 + offset_diff - arg_len);
+      if(newrel<INT_MIN || newrel > INT_MAX)
+      {
+        printf("Overflow on jump displacement \n");
+      }
       store_signed_integer (insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog,
