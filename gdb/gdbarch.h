@@ -1109,8 +1109,8 @@ extern void set_gdbarch_displaced_step_location (struct gdbarch *gdbarch, gdbarc
 
 extern int gdbarch_relocate_instruction_p (struct gdbarch *gdbarch);
 
-typedef void (gdbarch_relocate_instruction_ftype) (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
-extern void gdbarch_relocate_instruction (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
+typedef int (gdbarch_relocate_instruction_ftype) (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
+extern int gdbarch_relocate_instruction (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
 extern void set_gdbarch_relocate_instruction (struct gdbarch *gdbarch, gdbarch_relocate_instruction_ftype *relocate_instruction);
 
 /* Refresh overlay mapped state for section OSECT. */

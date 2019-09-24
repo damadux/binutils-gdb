@@ -4030,7 +4030,7 @@ gdbarch_relocate_instruction_p (struct gdbarch *gdbarch)
   return gdbarch->relocate_instruction != NULL;
 }
 
-void
+int
 gdbarch_relocate_instruction (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from)
 {
   gdb_assert (gdbarch != NULL);
@@ -4038,7 +4038,7 @@ gdbarch_relocate_instruction (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR 
   /* Do not check predicate: gdbarch->relocate_instruction != NULL, allow call.  */
   if (gdbarch_debug >= 2)
     fprintf_unfiltered (gdb_stdlog, "gdbarch_relocate_instruction called\n");
-  gdbarch->relocate_instruction (gdbarch, to, from);
+  return gdbarch->relocate_instruction (gdbarch, to, from);
 }
 
 void

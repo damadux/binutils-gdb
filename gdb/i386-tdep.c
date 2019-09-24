@@ -975,7 +975,7 @@ append_insns (CORE_ADDR *to, ULONGEST len, const gdb_byte *buf)
   *to += len;
 }
 
-static void
+static int
 i386_relocate_instruction (struct gdbarch *gdbarch,
 			   CORE_ADDR *to, CORE_ADDR oldloc)
 {
@@ -1025,7 +1025,7 @@ i386_relocate_instruction (struct gdbarch *gdbarch,
 
       /* Write the adjusted jump into its displaced location.  */
       append_insns (to, 5, insn);
-      return;
+      return 0;
     }
 
   /* Adjust jumps with 32-bit relative addresses.  Calls are already
@@ -1052,6 +1052,7 @@ i386_relocate_instruction (struct gdbarch *gdbarch,
   /* Write the adjusted instructions into their displaced
      location.  */
   append_insns (to, insn_length, buf);
+  return 0;
 }
 
 

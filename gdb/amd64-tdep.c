@@ -1801,7 +1801,7 @@ append_insns (CORE_ADDR *to, ULONGEST len, const gdb_byte *buf)
   *to += len;
 }
 
-static void
+static int
 amd64_relocate_instruction (struct gdbarch *gdbarch,
 			    CORE_ADDR *to, CORE_ADDR oldloc)
 {
@@ -1897,7 +1897,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
 
       /* Write the adjusted jump into its displaced location.  */
       append_insns (to, 5, insn);
-      return;
+      return 0;
     }
 
   offset = rip_relative_offset (&insn_details);
@@ -1939,7 +1939,11 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
       newrel = (oldloc - *to) + rel32 - (4 + offset_diff - arg_len);
       if(newrel<INT_MIN || newrel > INT_MAX)
       {
-        printf("Overflow on jump displacement \n");
+        /* Overflowing the */
+        if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, 
+            "Overflowing of int32 for jump instruction relocation");
+        return -1;
       }
       store_signed_integer (insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
@@ -1952,6 +1956,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
 
   /* Write the adjusted instruction into its displaced location.  */
   append_insns (to, insn_length, buf);
+  return 0;
 }
 
 

@@ -15,7 +15,7 @@ public:
     CORE_ADDR address;
     /* this is a fix offset to trampoline, it could be resolved statically */
     CORE_ADDR relocated_insn_address;
-    gdb_byte original_insn[5];
+    gdb_byte original_insn[6];
 
     Patch(munmap_list *mmp_list, CORE_ADDR addr)
     {
@@ -40,7 +40,7 @@ public:
         sprintf(store_string,"%lu %lu\n",address, relocated_insn_address);
     }
 
-    void read_original_insn(gdbarch *gdbarch)
+    void read_original_insn(gdbarch *gdbarch, int offset)
     {
         // int len = gdb_insn_length(gdbarch, address);
         // /* We keep all the instructions intersecting the future jump */ 
@@ -49,7 +49,12 @@ public:
         // {
         //     len+=gdb_insn_length(gdbarch, address + len);
         // }
-        target_read_memory(address, original_insn, 5);
+        target_read_memory(address+offset, original_insn+offset, 6-offset);
+    }
+    void offset_address()
+    {
+        address++;
+        memmove(original_insn, original_insn+1, 5);
     }
 
     ~Patch()
