@@ -945,10 +945,6 @@ patch_code (const char *location, const char *code, int mem_access_regs)
               current_patch->read_original_insn(gdbarch, offset);
             }
           }
-          if(patch->address==0x7ffff4b43b3b)
-          {
-            printf("Patch found %x %hx %hx \n", *((int *)patch->original_insn), patch->original_insn[4],patch->original_insn[5]);
-          }
           all_patches.add (patch);
         }
       else
@@ -1270,12 +1266,6 @@ reset_patch_data (struct inferior *inferior)
   all_patches = PatchVector ();
 }
 
-extern void
-step_1 (int skip_subroutines, int single_inst, const char *count_string);
-
-void
-step_command (const char *count_string, int from_tty);
-
 void
 patch_sigill_handler(const char *arg, int from_tty)
 {
@@ -1288,23 +1278,22 @@ patch_sigill_handler(const char *arg, int from_tty)
     
     /* Find which patch causes the problem. We need to pinpoint the patch closest to the issue */
     auto it = all_patches.patches.begin ();
-    int offset = 5;
+    int max_offset = 6;
     for (; it != all_patches.patches.end (); it++)
       {
-        if (it->active && it->patch->address<=sig_addr && sig_addr<it->patch->address+5)
+        int patch_offset = sig_addr - it->patch->address;
+        if (it->active && patch_offset>0 && patch_offset<max_offset)
           {
-            int patch_offset = sig_addr - it->patch->address;
-            if(patch_offset<offset)
-            {
-              offset = patch_offset;
-              current_patch = it->patch;
-            }
+            max_offset = patch_offset;
+            current_patch = it->patch;
           }
       }
       /* Reposition instruction */
-      target_read_memory(sig_addr,buffer, 4);
-      target_write_memory(sig_addr,current_patch->original_insn + offset,5-offset);
-            
+      if(max_offset<6)
+      {
+        target_read_memory(sig_addr,buffer, 4);
+        target_write_memory(sig_addr,current_patch->original_insn + max_offset,5-max_offset);
+      }
   }
   else
   {
