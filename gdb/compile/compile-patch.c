@@ -240,6 +240,7 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   if(multiple_mem_operands == 1)
   /* An instruction with two differents registers accessed i.e. movs or compsd */
   {
+    // printf("Multiple mem : reg %hx idx %hx scale %hx \n", reg, idx, scale);
     /* Do the same thing with the second register
        disp is necessarily 0 */
     
@@ -608,12 +609,12 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR *addr, int lengths[])
     }
     if(lengths[4]>1)
     {
-      printf("Unable to place a jump pad, adding a nop to offset on address 0x%lx\n", *addr);
+      // printf("Unable to place a jump pad, adding a nop to offset on address 0x%lx\n", *addr);
       // const gdb_byte nop = '\x90';
       for(int i = 0; i< 4; i++)
         lengths[i]=lengths[i+1];
       lengths[4]=0;
-      *addr+=1;
+      *addr= *addr + 1;
       // target_write_memory(*addr, &nop, 1);
       return place_trampoline(gdbarch, addr, lengths);
     }
@@ -785,11 +786,31 @@ build_compile_trampoline (struct gdbarch *gdbarch,
       target_write_memory(trampoline_end, insn,5);
       trampoline_end += 5;
     }
-    
+    if((mem_access_regs>>30) & 1) /* Double memory access */
+    {
+      reg = (mem_access_regs & 0xF0)>>4;
+      offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
+      if(reg>=8) /* We need a 32 bit disp. Only valid if offset <= -128 (reg>=14) */
+      {
+        insn[0]=0x4c;
+        insn[2]=dest_reg[reg%8]+0x40;
+        memcpy(insn+4, &offset, 4);
+        target_write_memory(trampoline_end, insn,8);
+        trampoline_end += 8;
+      }
+      else
+      {
+        insn[2]=dest_reg[reg%8];
+        insn[4]=(gdb_byte) offset;
+        target_write_memory(trampoline_end, insn,5);
+        trampoline_end += 5;
+      }
+    }
   }
   /* Relocate the other instructions */
   // printf("Before 0x%lx \n", trampoline_end);
-  while(current_insn_addr < insn_addr +5){
+  while(current_insn_addr < insn_addr +5)
+  {
     if(gdbarch_relocate_instruction (gdbarch, &trampoline_end, current_insn_addr)<0)
     {
       // printf("Exit 0x%lx \n", trampoline_end);
@@ -927,7 +948,8 @@ patch_code (const char *location, const char *code, int mem_access_regs)
 
       CORE_ADDR trampoline_address = build_compile_trampoline (
           gdbarch, compile_module, patch, return_address, mem_access_regs);
-
+      
+      addr = patch->address;
       patch->trampoline_address = trampoline_address;
       
       /* Patch in the code the jump to the trampoline.  */

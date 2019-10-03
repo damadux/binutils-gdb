@@ -1939,7 +1939,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
       newrel = (oldloc - *to) + rel32 - (4 + offset_diff - arg_len);
       if(newrel<INT_MIN || newrel > INT_MAX)
       {
-        /* Overflowing the */
+        /* Overflowing the 32 bit jump */
         if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, 
             "Overflowing of int32 for jump instruction relocation");
