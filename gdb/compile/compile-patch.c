@@ -1140,7 +1140,7 @@ compile_patch_delete_command (const char *arg, int from_tty)
       {
         if (it->active)
           {
-            fprintf_filtered("deleting patch %d\n",i);
+            fprintf_filtered(gdb_stdlog, "deleting patch %d\n",i);
             sprintf(index_string,"%d",i);
             compile_patch_delete_command(index_string,0);
           }
