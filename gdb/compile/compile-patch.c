@@ -111,7 +111,6 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x5e; /* pop %r14 */
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x5f; /* pop %r15 */
-  trampoline_instr[i++] = 0x58; /* pop %rax */
   trampoline_instr[i++] = 0x5b; /* pop %rbx */
   trampoline_instr[i++] = 0x59; /* pop %rcx */
   trampoline_instr[i++] = 0x5a; /* pop %rdx */
@@ -168,74 +167,22 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
     base : 4 bits
     index : 4 bits
     scale : 2 bits
-    disp : 8 bits
-    whether the access is simple or has a (index,scale) attribute : 1 bit */
+    disp : 12 bits
+    whether the access is simple or has a (index,scale) attribute : 1 bit
+    multiple mem operands : 1 bit 
+    whether to restore each register 1 bit each*/
 
   gdb_byte reg = mem_access_registers & 0xF;
-  /* mov <reg_value>, %rdi */
-  buf[i++] = 0x48; 
-  buf[i++] = 0x8b; 
-  buf[i++] = 0x7c; 
-  buf[i++] = 0x24; 
-  buf[i++] = (gdb_byte) 0x8*(15-reg + stack_offset); /* used to have +1 for fq */
-  
   gdb_byte idx = (mem_access_registers & 0xF0)>>4;
   gdb_byte scale = (mem_access_registers & 0xF00)>>8; 
   gdb_byte scale_log = log_table[scale];
-  int16_t disp = (mem_access_registers & 0xFFFF000)>>(4*3);
+  int16_t disp = (mem_access_registers & 0xFFF000)>>(4*3);
   gdb_byte mem_with_idx = (mem_access_registers & 0x10000000)>>(4*7);
   gdb_byte multiple_mem_operands = (mem_access_registers & 0x40000000)>>30;
-
-  if(mem_with_idx == 0)
-  /* A simple memory access : rsi = rdi + disp */
+  if(mem_with_idx>0)
   {
-    buf[i++] = 0x48; /* lea disp(%rdi), %rsi */
-    buf[i++] = 0x8d;
-    if((disp >= 0x80) || (disp < -0x80))
-    {
-      buf[i++]=0xb7;
-      memcpy (buf + i, &disp, 2);
-      i+=2;
-      buf[i++]=0;
-      buf[i++]=0;
-    }
-    else
-    {
-      buf[i++] = 0x77; 
-      buf[i++] = (gdb_byte) disp; 
-    }
+    multiple_mem_operands = 1;
   }
-  else
-  {
-    /* load the initial index register to rax, so that there is no interference 
-    if it was rdi or rsi. */
-    buf[i++] = 0x48; 
-    buf[i++] = 0x8b; 
-    buf[i++] = 0x44; 
-    buf[i++] = 0x24; 
-    buf[i++] = (gdb_byte) 0x08*(15-idx + stack_offset); /* used to be +1 for the flags */
-
-    /* We copy the actual address to rsi and the base address to rdi.
-      the memory checker funciton will check that rsi is valid and correct rdi.
-      This is done because we cannot simply revert a lea instruction. */
-    /* lea disp(rdi,rax,scale_log), %rsi*/
-    buf[i++] = 0x48; /* 64 bit lea  */
-    buf[i++] = 0x8d; 
-    buf[i++] = 0x74; /* ModR/M : to rsi + SIB w 8bit displacement */
-    buf[i++] = (scale_log<<6) + 0x0 + 0x7; /* SIB : [scale 2| index(rax) 3| base(rdi) 3] */
-    buf[i++] = disp; 
-  }
-
-  /* absolute call memory_check() */
-  buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
-  buf[i++] = 0xb8;
-  memcpy (buf + i, &memory_check_function, 8);
-  i += 8;
-  buf[i++] = 0xff; /* callq *%rax */
-  buf[i++] = 0xd0;
-  /* push result on the stack */
-  buf[i++] = 0x50; /* push %rax */
-  stack_offset ++;
 
   if(multiple_mem_operands == 1)
   /* An instruction with two differents registers accessed i.e. movs or compsd */
@@ -262,8 +209,68 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
     buf[i++] = 0xd0;
     /* push result on the stack */
     buf[i++] = 0x50; /* push %rax */
+
     stack_offset ++;
   }
+
+    /* mov <reg_value>, %rdi */
+  buf[i++] = 0x48; 
+  buf[i++] = 0x8b; 
+  buf[i++] = 0x7c; 
+  buf[i++] = 0x24; 
+  buf[i++] = (gdb_byte) 0x8*(15-reg + stack_offset); /* used to have +1 for fq */
+  if(mem_with_idx == 0)
+  /* A simple memory access : rsi = rdi + disp */
+  {
+    buf[i++] = 0x48; /* lea disp(%rdi), %rsi */
+    buf[i++] = 0x8d;
+    if((disp >= 0x80) || (disp < -0x80))
+    {
+      buf[i++]=0xb7;
+      memcpy (buf + i, &disp, 2);
+      i+=2;
+      buf[i++]=0;
+      buf[i++]=0;
+    }
+    else
+    {
+      buf[i++] = 0x77; 
+      buf[i++] = (gdb_byte) disp; 
+    }
+  }
+  else
+  {
+    /* load the initial index register to rax, so that there is no interference 
+    if it was rdi or rsi. */
+    // buf[i++] = 0x48; 
+    // buf[i++] = 0x8b; 
+    // buf[i++] = 0x44; 
+    // buf[i++] = 0x24; 
+    // buf[i++] = (gdb_byte) 0x08*(15-idx + stack_offset); /* used to be +1 for the flags */
+
+    /* We copy the actual address to rsi and the base address to rdi.
+      the memory checker funciton will check that rsi is valid and correct rdi.
+      This is done because we cannot simply revert a lea instruction. */
+    /* lea disp(rdi,rax,scale_log), %rsi*/
+    buf[i++] = 0x48; /* 64 bit lea  */
+    buf[i++] = 0x8d; 
+    buf[i++] = 0x74; /* ModR/M : to rsi + SIB w 8bit displacement */
+    buf[i++] = (scale_log<<6) + 0x0 + 0x7; /* SIB : [scale 2| index(rax) 3| base(rdi) 3] */
+    buf[i++] = disp; 
+  }
+
+  /* absolute call memory_check() */
+  buf[i++] = 0x48; /* movabs <memcheck_function>,%rax */
+  buf[i++] = 0xb8;
+  memcpy (buf + i, &memory_check_function, 8);
+  i += 8;
+  buf[i++] = 0xff; /* callq *%rax */
+  buf[i++] = 0xd0;
+  /* push result on the stack */
+  buf[i++] = 0x50; /* push %rax */
+  stack_offset ++;
+
+  
   
   /* I do not store all registers in a logical order 
      so that rsp and rbp are handled first / last */
@@ -271,16 +278,15 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
     {0x5c,0x5d,0x5f,0x5e,0x5b,0x5a,0x59,0x58};
     // {0x58,0x59,0x5a,0x5b,0x5e,0x5f,0x5d,0x5c};
   /* restore the modified register(s) */
+  if(reg >= 8)
+    buf[i++] = 0x41;
+  buf[i++] = pop_insns[reg%8];
   if(multiple_mem_operands == 1)
   {
     if(idx >= 8)
       buf[i++] = 0x41;
     buf[i++] = pop_insns[idx%8];
   }
-  if(reg >= 8)
-    buf[i++] = 0x41;
-  buf[i++] = pop_insns[reg%8];
-
   /* restore the other registers */
   for(int pop_index = 15; pop_index>=0; pop_index--)
   {
@@ -520,11 +526,12 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
         }
       }
     }
-    // printf("Still there \n");
     return (CORE_ADDR) 0;
   }
   else
   {
+    int increments = 0;
+    int MAX_INCREMENTS=20;
     while(1)
     {
       if (page_map.find(page_address) != page_map.end())
@@ -560,7 +567,13 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
       }
       else
       {
-        error(_("ERROR : Unable to mmap a new region."));
+        increments++;
+        page_address+=page_size;
+        fprintf_filtered(gdb_stdlog, "mmap failed for address 0x%lx tp 0x%lx\n", page_address, tp_address);
+        if(increments > MAX_INCREMENTS)
+        {
+          error(_("ERROR : Unable to mmap a new region."));
+        }
       }
     }
   }
@@ -570,7 +583,11 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
 CORE_ADDR
 allocate_trampoline (struct gdbarch *gdbarch, int size, CORE_ADDR addr)
 {
-  CORE_ADDR minimum_address = ((addr>>29) - 0x1)<<29;
+  CORE_ADDR minimum_address;
+    if(addr > (1<<29))
+      minimum_address = ((addr>>29) - 0x1)<<29;
+    else
+      minimum_address = 0x100000;
   CORE_ADDR tp_address = try_put_trampoline(gdbarch, minimum_address, ANYWHERE);
   
   if(tp_address == 0)
@@ -600,7 +617,7 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR *addr, int lengths[])
         // printf("addr 0x%lx offset 0x%x tp_addr 0x%lx \n", addr, offset, tp_address);
         continue;
       }
-      if (try_put_trampoline(gdbarch,tp_address, FIXED_POS))
+      if (try_put_trampoline(gdbarch,tp_address, FIXED_POS)!=0)
       {
         return tp_address;
       }
@@ -623,7 +640,11 @@ place_trampoline(gdbarch *gdbarch, CORE_ADDR *addr, int lengths[])
   }
   else
   {
-    CORE_ADDR minimum_address = ((*addr>>29) - 0x1)<<29;
+    CORE_ADDR minimum_address;
+    if(*addr > (1<<29))
+      minimum_address = ((*addr>>29) - 0x1)<<29;
+    else
+      minimum_address = 0x100000;
     CORE_ADDR tp_address = try_put_trampoline(gdbarch, minimum_address, JUST_ASKING);
     if(tp_address == 0)
     {
@@ -784,6 +805,29 @@ build_compile_trampoline (struct gdbarch *gdbarch,
       insn[4]=(gdb_byte) offset;
       target_write_memory(trampoline_end, insn,5);
       trampoline_end += 5;
+    }
+    if((mem_access_regs & 0x8000000)>>(27) == 1)
+    {
+      /* restore the idx register too */
+      int reg = (mem_access_regs&0xF0)>>4;
+      printf("Reg 2 %d mem_access 0x%x \n", reg, mem_access_regs);
+      int offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
+      gdb_byte insn[8] = {0x48,0x8b,0x0,0x24,0x0,0x0,0x0,0x0};
+      if(reg>=8) /* We need a 32 bit disp. Only valid if offset <= -128 (reg>=14) */
+      {
+        insn[0]=0x4c;
+        insn[2]=dest_reg[reg%8]+0x40;
+        memcpy(insn+4, &offset, 4);
+        target_write_memory(trampoline_end, insn,8);
+        trampoline_end += 8;
+      }
+      else
+      {
+        insn[2]=dest_reg[reg%8];
+        insn[4]=(gdb_byte) offset;
+        target_write_memory(trampoline_end, insn,5);
+        trampoline_end += 5;
+      }
     }
     
   }

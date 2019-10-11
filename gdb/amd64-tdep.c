@@ -1953,7 +1953,10 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
 			    hex_string (rel32), paddress (gdbarch, oldloc),
 			    hex_string (newrel), paddress (gdbarch, *to));
     }
-
+  if(insn[0]=='\x0f' && insn[1] == '\x05')
+  {
+    fprintf_filtered(gdb_stdlog,"syscall relocated to 0x%lx\n", *to);
+  }
   /* Write the adjusted instruction into its displaced location.  */
   append_insns (to, insn_length, buf);
   return 0;
