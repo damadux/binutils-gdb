@@ -32,12 +32,13 @@
 #include "observable.h"
 #include "patch.h"
 #include "memory-map.h"
-
+#include <sys/stat.h>
+#include <fstream>
 
 #define JMP_INSN_LENGTH 5
 #define TP_SIZE 0x100
 #define MINIMUM_ADDRESS(a) ((a>>29) > 0 ? (((a>>29) -1)<<29) : 0x100000)
-
+#define RELOCATE_AND_JUMP_SPACE 15
 
 PatchVector all_patches;
 amd64_MemoryMap memMap;
@@ -172,6 +173,51 @@ Make sure the instruction is long enough.\n");
   xfree (compile_module);
 }
 
+static void
+patch_hex(const char *location, const char *file_content, int file_size)
+{
+  struct gdbarch *gdbarch = target_gdbarch ();
+
+  /* Convert location string to an instruction address.  */
+  CORE_ADDR addr = location_to_pc (location);
+
+  CORE_ADDR return_address = find_return_address (gdbarch, addr);
+  if (return_address != 0)
+  {
+    Patch *patch = new Patch (NULL, addr);
+    
+    /* Allocate memory for the trampoline in the inferior.  */
+    CORE_ADDR trampoline
+        = allocate_trampoline (gdbarch, addr, file_size + RELOCATE_AND_JUMP_SPACE);
+
+    if (trampoline != 0)
+    {
+      patch->trampoline_address = trampoline;
+      /* Copy content of buffer to inferior memory.  */
+      target_write_memory (trampoline, (const gdb_byte *)file_content, file_size);
+
+      /* Relocate replaced instruction */
+      CORE_ADDR trampoline_end = trampoline + file_size;
+      patch->relocated_insn_address = trampoline_end;
+      gdbarch_relocate_instruction (gdbarch, &trampoline_end, addr);
+
+      /* Jump back to return address.  */
+      gdbarch_patch_jump(gdbarch, trampoline_end, return_address, 0);
+
+      /* Insert jump to trampoline.  */
+      if (gdbarch_patch_jump (gdbarch, addr, trampoline, 1) == 0)
+      {
+        all_patches.add (patch);
+        return;
+      }
+    }
+    fprintf_filtered(gdb_stdlog,
+"Unable to insert the code at the given location.\n\
+Make sure the instruction is long enough.\n");
+    delete patch;
+  }
+}
+
 /* Handle the input from the 'patch code' command.  The
    "patch code" command is used to patch in the code an expression
    containing calls to the GCC compiler.  The language expected in this
@@ -237,6 +283,46 @@ reset_patch_data (struct inferior *inferior)
   // TODO
   /* Delete all live patches objects.  */
   all_patches.reset();
+}
+
+/* Handle the input from the 'patch hex' command.  The
+   "patch hex" command is used to patch compiled instructions directly
+   in the code.  The instructions are expected to be correct, as
+   an incorrect instruction can easily crash the program. */
+
+void
+compile_patch_hex_command(const char *arg, int from_tty){
+  if (arg == NULL)
+    {
+      error ("No arguments were entered for the patch hex command.");
+    }
+  struct stat st;
+  char *buf;
+  int file_size;
+  char *dup = strdup (arg);
+  const char *location = strtok (dup, " ");
+  const char *source_file = strtok (NULL, " ");
+  if (source_file == NULL)
+    {
+      free (dup);
+      error ("Missing the second argument for the patch hex command.");
+    }
+  gdb::unique_xmalloc_ptr<char> abspath = gdb_abspath (source_file);
+  stat(abspath.get (), &st);
+  // Allocate buffer to put the content of the file
+  file_size = st.st_size;
+  buf = (char *) malloc(file_size);
+  // copy content of file
+  std::ifstream file(abspath.get());
+  if (!file.read(buf, file_size))
+  {
+    free(buf);
+    free(dup);
+    error("Failed to read the content of the file.");
+  }
+  patch_hex (location, buf, file_size);
+  free (buf);
+  free (dup);
 }
 
 /* Handle the input from the 'patch list' command.  The

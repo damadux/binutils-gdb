@@ -1081,6 +1081,17 @@ Usage: compile patch file [LOCATION] [FILENAME]"),
 	       &compile_patch_command_list);
   set_cmd_completer (c, filename_completer);
 
+  c = add_cmd ("hex", class_obscure, compile_patch_hex_command,
+	   _("\
+Inserts compiled code from a file.\n\
+\n\
+Usage: patch hex [LOCATION] [FILENAME] \n\
+\n\
+The content of the file must be a binary snippet of code.\n\
+It will be jumped to from the location given, and a jump back\n\
+to the next instruction will be added. "),
+	   &compile_patch_command_list);
+  set_cmd_completer (c, filename_completer);
 
   add_cmd ("list", class_obscure, compile_patch_list_command,
 	   _("\
