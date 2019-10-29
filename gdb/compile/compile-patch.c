@@ -44,8 +44,7 @@ amd64_MemoryMap memMap;
 
 /* Finds the return address for a trampoline placed at insn_addr.  */
 static CORE_ADDR
-find_return_address (struct gdbarch *gdbarch, CORE_ADDR insn_addr,
-                     bool verbose)
+find_return_address (struct gdbarch *gdbarch, CORE_ADDR insn_addr)
 {
   /* In this version, we only check if we have enough room to put a jump.  */
   if (gdb_insn_length (gdbarch, insn_addr) < JMP_INSN_LENGTH)
@@ -140,7 +139,7 @@ patch_code (const char *location, const char *code)
       = compile_object_load (fnames, scope, NULL);
 
   /* Build a trampoline which calls the compiled code.  */
-  CORE_ADDR return_address = find_return_address (gdbarch, addr, true);
+  CORE_ADDR return_address = find_return_address (gdbarch, addr);
   if (return_address != 0)
   {
     Patch *patch = new Patch (compile_module->munmap_list_head, addr);
