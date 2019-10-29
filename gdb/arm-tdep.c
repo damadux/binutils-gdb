@@ -55,8 +55,6 @@
 #include "coff/internal.h"
 #include "elf/arm.h"
 
-#include "gdbsupport/vec.h"
-
 #include "record.h"
 #include "record-full.h"
 #include <algorithm>
@@ -65,7 +63,7 @@
 #include "gdbsupport/selftest.h"
 #endif
 
-static int arm_debug;
+static bool arm_debug;
 
 /* Macros for setting and testing a bit in a minimal symbol that marks
    it as Thumb function.  The MSB of the minimal symbol's "info" field
@@ -294,9 +292,9 @@ static CORE_ADDR arm_analyze_prologue (struct gdbarch *gdbarch,
 
 #define DISPLACED_STEPPING_ARCH_VERSION		5
 
-/* Set to true if the 32-bit mode is in use.  */
+/* See arm-tdep.h.  */
 
-int arm_apcs_32 = 1;
+bool arm_apcs_32 = true;
 
 /* Return the bit mask in ARM_PS_REGNUM that indicates Thumb mode.  */
 
@@ -2009,12 +2007,11 @@ arm_obj_section_from_vma (struct objfile *objfile, bfd_vma vma)
   struct obj_section *osect;
 
   ALL_OBJFILE_OSECTIONS (objfile, osect)
-    if (bfd_get_section_flags (objfile->obfd,
-			       osect->the_bfd_section) & SEC_ALLOC)
+    if (bfd_section_flags (osect->the_bfd_section) & SEC_ALLOC)
       {
 	bfd_vma start, size;
-	start = bfd_get_section_vma (objfile->obfd, osect->the_bfd_section);
-	size = bfd_get_section_size (osect->the_bfd_section);
+	start = bfd_section_vma (osect->the_bfd_section);
+	size = bfd_section_size (osect->the_bfd_section);
 
 	if (start <= vma && vma < start + size)
 	  return osect;
@@ -2054,8 +2051,8 @@ arm_exidx_new_objfile (struct objfile *objfile)
   gdb::byte_vector exidx_data;
   if (exidx)
     {
-      exidx_vma = bfd_section_vma (objfile->obfd, exidx);
-      exidx_data.resize (bfd_get_section_size (exidx));
+      exidx_vma = bfd_section_vma (exidx);
+      exidx_data.resize (bfd_section_size (exidx));
 
       if (!bfd_get_section_contents (objfile->obfd, exidx,
 				     exidx_data.data (), 0,
@@ -2067,8 +2064,8 @@ arm_exidx_new_objfile (struct objfile *objfile)
   gdb::byte_vector extab_data;
   if (extab)
     {
-      extab_vma = bfd_section_vma (objfile->obfd, extab);
-      extab_data.resize (bfd_get_section_size (extab));
+      extab_vma = bfd_section_vma (extab);
+      extab_data.resize (bfd_section_size (extab));
 
       if (!bfd_get_section_contents (objfile->obfd, extab,
 				     extab_data.data (), 0,
@@ -2100,7 +2097,7 @@ arm_exidx_new_objfile (struct objfile *objfile)
       sec = arm_obj_section_from_vma (objfile, idx);
       if (sec == NULL)
 	continue;
-      idx -= bfd_get_section_vma (objfile->obfd, sec->the_bfd_section);
+      idx -= bfd_section_vma (sec->the_bfd_section);
 
       /* Determine address of exception table entry.  */
       if (val == 1)
@@ -3740,7 +3737,7 @@ arm_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	    }
 	}
 
-      /* Push stack padding for dowubleword alignment.  */
+      /* Push stack padding for doubleword alignment.  */
       if (nstack & (align - 1))
 	{
 	  si = push_stack_item (si, val, ARM_INT_REGISTER_SIZE);
@@ -4831,7 +4828,7 @@ cleanup_branch (struct gdbarch *gdbarch, struct regcache *regs,
   if (dsc->u.branch.link)
     {
       /* The value of LR should be the next insn of current one.  In order
-       not to confuse logic hanlding later insn `bx lr', if current insn mode
+       not to confuse logic handling later insn `bx lr', if current insn mode
        is Thumb, the bit 0 of LR value should be set to 1.  */
       ULONGEST next_insn_addr = dsc->insn_addr + dsc->insn_size;
 
@@ -5522,7 +5519,7 @@ install_load_store (struct gdbarch *gdbarch, struct regcache *regs,
 
      Before this sequence of instructions:
      r0 is the PC value got from displaced_read_reg, so r0 = from + 8;
-     r2 is the Rn value got from dispalced_read_reg.
+     r2 is the Rn value got from displaced_read_reg.
 
      Insn1: push {pc} Write address of STR instruction + offset on stack
      Insn2: pop  {r4} Read it back from stack, r4 = addr(Insn1) + offset
@@ -6199,7 +6196,7 @@ cleanup_svc (struct gdbarch *gdbarch, struct regcache *regs,
 }
 
 
-/* Common copy routine for svc instruciton.  */
+/* Common copy routine for svc instruction.  */
 
 static int
 install_svc (struct gdbarch *gdbarch, struct regcache *regs,
@@ -6812,7 +6809,7 @@ thumb2_decode_svc_copro (struct gdbarch *gdbarch, uint16_t insn1,
 	      if (bit_4 == 0) /* STC/STC2.  */
 		return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
 						    "stc/stc2", dsc);
-	      else /* LDC/LDC2 {literal, immeidate}.  */
+	      else /* LDC/LDC2 {literal, immediate}.  */
 		return thumb2_copy_copro_load_store (gdbarch, insn1, insn2,
 						     regs, dsc);
 	    }
@@ -6957,7 +6954,7 @@ thumb_copy_16bit_ldr_literal (struct gdbarch *gdbarch, uint16_t insn1,
   return 0;
 }
 
-/* Copy Thumb cbnz/cbz insruction.  */
+/* Copy Thumb cbnz/cbz instruction.  */
 
 static int
 thumb_copy_cbnz_cbz (struct gdbarch *gdbarch, uint16_t insn1,
@@ -7332,7 +7329,7 @@ thumb_process_displaced_32bit_insn (struct gdbarch *gdbarch, uint16_t insn1,
 	  case 0:
 	    if (bit (insn1, 6))
 	      {
-		/* Load/store {dual, execlusive}, table branch.  */
+		/* Load/store {dual, exclusive}, table branch.  */
 		if (bits (insn1, 7, 8) == 1 && bits (insn1, 4, 5) == 1
 		    && bits (insn2, 5, 7) == 0)
 		  err = thumb2_copy_table_branch (gdbarch, insn1, insn2, regs,
@@ -7393,7 +7390,7 @@ thumb_process_displaced_32bit_insn (struct gdbarch *gdbarch, uint16_t insn1,
 		err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
 						   "dp/pb", dsc);
 	    }
-	  else /* Data processing (modified immeidate) */
+	  else /* Data processing (modified immediate) */
 	    err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
 					       "dp/mi", dsc);
 	}
@@ -8575,7 +8572,7 @@ arm_record_special_symbol (struct gdbarch *gdbarch, struct objfile *objfile,
     data = arm_objfile_data_key.emplace (objfile,
 					 objfile->obfd->section_count);
   arm_mapping_symbol_vec &map
-    = data->section_maps[bfd_get_section (sym)->index];
+    = data->section_maps[bfd_asymbol_section (sym)->index];
 
   new_map_sym.value = sym->value;
   new_map_sym.type = name[1];
@@ -9448,7 +9445,7 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     }
 
   /* Add standard register aliases.  We add aliases even for those
-     nanes which are used by the current architecture - it's simpler,
+     names which are used by the current architecture - it's simpler,
      and does no harm, since nothing ever lists user registers.  */
   for (i = 0; i < ARRAY_SIZE (arm_register_aliases); i++)
     user_reg_add (gdbarch, arm_register_aliases[i].name,
@@ -10690,7 +10687,7 @@ arm_record_ld_st_reg_offset (insn_decode_record *arm_insn_r)
     {
       reg_dest = bits (arm_insn_r->arm_insn, 12, 15);
       /* LDR insn has a capability to do branching, if
-         MOV LR, PC is precedded by LDR insn having Rn as R15
+         MOV LR, PC is preceded by LDR insn having Rn as R15
          in that case, it emulates branch and link insn, and hence we
          need to save CSPR and PC as well.  */
       if (15 != reg_dest)
@@ -13009,7 +13006,7 @@ class instruction_reader : public abstract_memory_reader
 } // namespace
 
 /* Extracts arm/thumb/thumb2 insn depending on the size, and returns 0 on success 
-and positive val on fauilure.  */
+and positive val on failure.  */
 
 static int
 extract_arm_insn (abstract_memory_reader& reader,

@@ -19,7 +19,7 @@ dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
 dnl Process this file with autoconf to produce a configure script.
 
 AC_INIT(server.c)
-AC_CONFIG_HEADER(config.h:config.in)
+AC_CONFIG_HEADERS(config.h:config.in, [echo > stamp-h])
 
 AM_MAINTAINER_MODE
 
@@ -44,15 +44,6 @@ AC_HEADER_STDC
 
 # Set the 'development' global.
 . $srcdir/../../bfd/development.sh
-
-# Enable -lmcheck by default (it provides cheap-enough memory
-# mangling), but turn it off for releases.
-if $development; then
-  libmcheck_default=yes
-else
-  libmcheck_default=no
-fi
-GDB_AC_LIBMCHECK(${libmcheck_default})
 
 GDB_AC_SELFTEST([
   srv_selftest_objs="gdbsupport/selftest.o"
@@ -493,11 +484,6 @@ if test x"$STDINT_H" != x; then
 fi
 AC_SUBST(GNULIB_STDINT_H)
 
-AC_CONFIG_FILES([Makefile],
-[case x$CONFIG_HEADERS in
-xconfig.h:config.in)
-echo > stamp-h ;;
-esac
-])
+AC_CONFIG_FILES([Makefile])
 
 AC_OUTPUT

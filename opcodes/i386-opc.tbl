@@ -116,22 +116,24 @@ push, 1, 0x50, None, 1, CpuNo64, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|N
 push, 1, 0xff, 0x6, 1, CpuNo64, Modrm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { Reg16|Reg32|Word|Dword|Unspecified|BaseIndex }
 push, 1, 0x6a, None, 1, Cpu186|CpuNo64, DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { Imm8S }
 push, 1, 0x68, None, 1, Cpu186|CpuNo64, DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { Imm16|Imm32 }
-push, 1, 0x6, None, 1, 0, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { SReg }
+push, 1, 0x6, None, 1, CpuNo64, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { SReg }
 // In 64bit mode, the operand size is implicitly 64bit.
 push, 1, 0x50, None, 1, Cpu64, ShortForm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Reg16|Reg64 }
 push, 1, 0xff, 0x6, 1, Cpu64, Modrm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Reg16|Reg64|Word|Qword|Unspecified|BaseIndex }
 push, 1, 0x6a, None, 1, Cpu64, DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Imm8S }
 push, 1, 0x68, None, 1, Cpu64, DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Imm16|Imm32S }
+push, 1, 0xfa0, None, 2, Cpu64, ShortForm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { SReg }
 
 pusha, 0, 0x60, None, 1, Cpu186|CpuNo64, DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { 0 }
 
 // Pop instructions.
 pop, 1, 0x58, None, 1, CpuNo64, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { Reg16|Reg32 }
 pop, 1, 0x8f, 0x0, 1, CpuNo64, Modrm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { Reg16|Reg32|Word|Dword|Unspecified|BaseIndex }
-pop, 1, 0x7, None, 1, 0, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { SReg }
+pop, 1, 0x7, None, 1, CpuNo64, ShortForm|DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { SReg }
 // In 64bit mode, the operand size is implicitly 64bit.
 pop, 1, 0x58, None, 1, Cpu64, ShortForm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Reg16|Reg64 }
 pop, 1, 0x8f, 0x0, 1, Cpu64, Modrm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Reg16|Reg64|Word|Qword|Unspecified|BaseIndex }
+pop, 1, 0xfa1, None, 2, Cpu64, ShortForm|DefaultSize|No_bSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { SReg }
 
 popa, 0, 0x61, None, 1, Cpu186|CpuNo64, DefaultSize|No_bSuf|No_sSuf|No_qSuf|No_ldSuf, { 0 }
 
@@ -556,7 +558,7 @@ fld, 1, 0xd9c0, None, 2, CpuFP, ShortForm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSu
 fld, 1, 0xd9, 0x0, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_qSuf|No_ldSuf, { Dword|Qword|Unspecified|BaseIndex }
 fld, 1, 0xd9c0, None, 2, CpuFP, ShortForm|IgnoreSize|No_bSuf|No_wSuf|No_sSuf|No_qSuf|No_ldSuf|Ugh, { FloatReg }
 // Intel Syntax
-fld, 1, 0xdb, 0x5, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf, { Tbyte|Unspecified|BaseIndex }
+fld, 1, 0xdb, 0x5, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf, { Tbyte|Unspecified|BaseIndex }
 fild, 1, 0xdf, 0x0, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_qSuf|No_ldSuf, { Word|Dword|Unspecified|BaseIndex }
 fild, 1, 0xdf, 0x5, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Qword|Unspecified|BaseIndex }
 fildll, 1, 0xdf, 0x5, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Qword|Unspecified|BaseIndex }
@@ -574,7 +576,7 @@ fstp, 1, 0xddd8, None, 2, CpuFP, ShortForm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qS
 fstp, 1, 0xd9, 0x3, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_qSuf|No_ldSuf, { Dword|Qword|Unspecified|BaseIndex }
 fstp, 1, 0xddd8, None, 2, CpuFP, ShortForm|IgnoreSize|No_bSuf|No_wSuf|No_sSuf|No_qSuf|No_ldSuf|Ugh, { FloatReg }
 // Intel Syntax
-fstp, 1, 0xdb, 0x7, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf, { Tbyte|Unspecified|BaseIndex }
+fstp, 1, 0xdb, 0x7, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf, { Tbyte|Unspecified|BaseIndex }
 fistp, 1, 0xdf, 0x3, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_wSuf|No_qSuf|No_ldSuf, { Word|Dword|Unspecified|BaseIndex }
 fistp, 1, 0xdf, 0x7, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_ldSuf|NoRex64, { Qword|Unspecified|BaseIndex }
 fistpll, 1, 0xdf, 0x7, 1, CpuFP, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Qword|Unspecified|BaseIndex }
@@ -744,14 +746,14 @@ fabs, 0, 0xd9e1, None, 2, CpuFP, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSu
 // processor control
 fninit, 0, 0xdbe3, None, 2, CpuFP, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { 0 }
 finit, 0, 0xdbe3, None, 2, CpuFP, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { 0 }
-fldcw, 1, 0xd9, 0x5, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
-fnstcw, 1, 0xd9, 0x7, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
-fstcw, 1, 0xd9, 0x7, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { Word|Unspecified|BaseIndex }
+fldcw, 1, 0xd9, 0x5, 1, CpuFP, Modrm|IgnoreSize|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
+fnstcw, 1, 0xd9, 0x7, 1, CpuFP, Modrm|IgnoreSize|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
+fstcw, 1, 0xd9, 0x7, 1, CpuFP, Modrm|IgnoreSize|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { Word|Unspecified|BaseIndex }
 fnstsw, 1, 0xdfe0, None, 2, Cpu287|Cpu387, IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Acc|Word }
-fnstsw, 1, 0xdd, 0x7, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
+fnstsw, 1, 0xdd, 0x7, 1, CpuFP, Modrm|IgnoreSize|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Word|Unspecified|BaseIndex }
 fnstsw, 0, 0xdfe0, None, 2, Cpu287|Cpu387, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { 0 }
 fstsw, 1, 0xdfe0, None, 2, Cpu287|Cpu387, IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { Acc|Word }
-fstsw, 1, 0xdd, 0x7, 1, CpuFP, Modrm|FloatMF|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { word|Unspecified|BaseIndex }
+fstsw, 1, 0xdd, 0x7, 1, CpuFP, Modrm|IgnoreSize|No_bSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { Word|Unspecified|BaseIndex }
 fstsw, 0, 0xdfe0, None, 2, Cpu287|Cpu387, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { 0 }
 fnclex, 0, 0xdbe2, None, 2, CpuFP, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { 0 }
 fclex, 0, 0xdbe2, None, 2, CpuFP, No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|FWait, { 0 }
@@ -1379,8 +1381,8 @@ cmpunordsd, 2, 0xf20fc2, 0x3, 2, CpuSSE2, Modrm|IgnoreSize|No_bSuf|No_wSuf|No_lS
 cmppd, 3, 0x66c2, None, 1, CpuAVX, Modrm|Vex|VexOpcode=0|VexVVVV=1|VexW=1|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { Imm8, RegXMM|Unspecified|BaseIndex, RegXMM }
 cmppd, 3, 0x660fc2, None, 2, CpuSSE2, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Imm8, RegXMM|Unspecified|BaseIndex, RegXMM }
 // Intel mode string compare.
-cmpsd, 0, 0xa7, None, 1, 0, Size32|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { 0 }
-cmpsd, 2, 0xa7, None, 1, 0, Size32|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { Unspecified|BaseIndex, Unspecified|BaseIndex|EsSeg }
+cmpsd, 0, 0xa7, None, 1, 0, Size32|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { 0 }
+cmpsd, 2, 0xa7, None, 1, 0, Size32|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { Dword|Unspecified|BaseIndex|EsSeg, Dword|Unspecified|BaseIndex }
 cmpsd, 3, 0xf2c2, None, 1, CpuAVX, Modrm|Vex=3|VexOpcode=0|VexVVVV=1|VexW=1|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { Imm8, Qword|Unspecified|BaseIndex|RegXMM, RegXMM }
 cmpsd, 3, 0xf20fc2, None, 2, CpuSSE2, Modrm|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Imm8, Qword|Unspecified|BaseIndex|RegXMM, RegXMM }
 comisd, 2, 0x662f, None, 1, CpuAVX, Modrm|Vex=3|VexOpcode=0|VexW=1|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { Qword|Unspecified|BaseIndex|RegXMM, RegXMM }
@@ -1415,8 +1417,8 @@ movmskpd, 2, 0x660f50, None, 2, CpuSSE2, Modrm|IgnoreSize|No_bSuf|No_wSuf|No_sSu
 movntpd, 2, 0x662b, None, 1, CpuAVX, Modrm|Vex|VexOpcode=0|VexW=1|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { RegXMM, Xmmword|Unspecified|BaseIndex }
 movntpd, 2, 0x660f2b, None, 2, CpuSSE2, Modrm|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { RegXMM, Xmmword|Unspecified|BaseIndex }
 // Intel mode string move.
-movsd, 0, 0xa5, None, 1, 0, Size32|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { 0 }
-movsd, 2, 0xa5, None, 1, 0, Size32|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { Unspecified|BaseIndex, Unspecified|BaseIndex|EsSeg }
+movsd, 0, 0xa5, None, 1, 0, Size32|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { 0 }
+movsd, 2, 0xa5, None, 1, 0, Size32|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|IsString|RepPrefixOk, { Dword|Unspecified|BaseIndex, Dword|Unspecified|BaseIndex|EsSeg }
 movsd, 2, 0xf210, None, 1, CpuAVX, D|Modrm|Vex=3|VexOpcode=0|VexW=1|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { Qword|Unspecified|BaseIndex, RegXMM }
 movsd, 2, 0xf210, None, 1, CpuAVX, D|Modrm|Vex=3|VexOpcode=0|VexVVVV=1|VexW=1|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf|SSE2AVX, { RegXMM, RegXMM }
 movsd, 2, 0xf20f10, None, 2, CpuSSE2, D|Modrm|IgnoreSize|No_bSuf|No_wSuf|No_lSuf|No_sSuf|No_qSuf|No_ldSuf, { Qword|Unspecified|BaseIndex|RegXMM, RegXMM }

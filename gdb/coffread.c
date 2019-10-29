@@ -222,15 +222,15 @@ coff_locate_sections (bfd *abfd, asection *sectp, void *csip)
   const char *name;
 
   csi = (struct coff_symfile_info *) csip;
-  name = bfd_get_section_name (abfd, sectp);
+  name = bfd_section_name (sectp);
   if (strcmp (name, ".text") == 0)
     {
-      csi->textaddr = bfd_section_vma (abfd, sectp);
-      csi->textsize += bfd_section_size (abfd, sectp);
+      csi->textaddr = bfd_section_vma (sectp);
+      csi->textsize += bfd_section_size (sectp);
     }
   else if (startswith (name, ".text"))
     {
-      csi->textsize += bfd_section_size (abfd, sectp);
+      csi->textsize += bfd_section_size (sectp);
     }
   else if (strcmp (name, ".stabstr") == 0)
     {
@@ -307,7 +307,7 @@ cs_section_address (struct coff_symbol *cs, bfd *abfd)
   args.resultp = &sect;
   bfd_map_over_sections (abfd, find_targ_sec, &args);
   if (sect != NULL)
-    addr = bfd_get_section_vma (abfd, sect);
+    addr = bfd_section_vma (sect);
   return addr;
 }
 
@@ -417,7 +417,7 @@ static int
 is_import_fixup_symbol (struct coff_symbol *cs,
 			enum minimal_symbol_type type)
 {
-  /* The following is a bit of a heuristic using the characterictics
+  /* The following is a bit of a heuristic using the characteristics
      of these fixup symbols, but should work well in practice...  */
   int i;
 
@@ -456,7 +456,7 @@ record_minimal_symbol (minimal_symbol_reader &reader,
     {
       /* Because the value of these symbols is within a function code
 	 range, these symbols interfere with the symbol-from-address
-	 reverse lookup; this manifests itselfs in backtraces, or any
+	 reverse lookup; this manifests itself in backtraces, or any
 	 other commands that prints symbolic addresses.  Just pretend
 	 these symbols do not exist.  */
       return NULL;
@@ -538,7 +538,7 @@ coff_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
   struct coff_symfile_info *info;
   bfd *abfd = objfile->obfd;
   coff_data_type *cdata = coff_data (abfd);
-  char *filename = bfd_get_filename (abfd);
+  const char *filename = bfd_get_filename (abfd);
   int val;
   unsigned int num_symbols;
   int symtab_offset;
@@ -692,7 +692,7 @@ coff_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
          bfd_get_section_contents?  */
       bfd_seek (abfd, abfd->where, 0);
 
-      stabstrsize = bfd_section_size (abfd, info->stabstrsect);
+      stabstrsize = bfd_section_size (info->stabstrsect);
 
       coffstab_build_psymtabs (objfile,
 			       info->textaddr, info->textsize,
@@ -1609,9 +1609,10 @@ process_coff_symbol (struct coff_symbol *cs,
 	case C_THUMBEXTFUNC:
 	case C_EXT:
 	  SYMBOL_ACLASS_INDEX (sym) = LOC_STATIC;
-	  SYMBOL_VALUE_ADDRESS (sym) = (CORE_ADDR) cs->c_value;
-	  SYMBOL_VALUE_ADDRESS (sym) += ANOFFSET (objfile->section_offsets,
-						  SECT_OFF_TEXT (objfile));
+	  SET_SYMBOL_VALUE_ADDRESS (sym,
+				    (CORE_ADDR) cs->c_value
+				    + ANOFFSET (objfile->section_offsets,
+						SECT_OFF_TEXT (objfile)));
 	  add_symbol_to_list (sym, get_global_symbols ());
 	  break;
 
@@ -1619,9 +1620,10 @@ process_coff_symbol (struct coff_symbol *cs,
 	case C_THUMBSTATFUNC:
 	case C_STAT:
 	  SYMBOL_ACLASS_INDEX (sym) = LOC_STATIC;
-	  SYMBOL_VALUE_ADDRESS (sym) = (CORE_ADDR) cs->c_value;
-	  SYMBOL_VALUE_ADDRESS (sym) += ANOFFSET (objfile->section_offsets,
-						  SECT_OFF_TEXT (objfile));
+	  SET_SYMBOL_VALUE_ADDRESS (sym,
+				    (CORE_ADDR) cs->c_value
+				    + ANOFFSET (objfile->section_offsets,
+						SECT_OFF_TEXT (objfile)));
 	  if (within_function)
 	    {
 	      /* Static symbol of local scope.  */
@@ -2019,9 +2021,7 @@ coff_read_struct_type (int index, int length, int lastsym,
 	  list = newobj;
 
 	  /* Save the data.  */
-	  list->field.name
-	    = (const char *) obstack_copy0 (&objfile->objfile_obstack,
-					    name, strlen (name));
+	  list->field.name = obstack_strdup (&objfile->objfile_obstack, name);
 	  FIELD_TYPE (list->field) = decode_type (ms, ms->c_type,
 						  &sub_aux, objfile);
 	  SET_FIELD_BITPOS (list->field, 8 * ms->c_value);
@@ -2037,9 +2037,7 @@ coff_read_struct_type (int index, int length, int lastsym,
 	  list = newobj;
 
 	  /* Save the data.  */
-	  list->field.name
-	    = (const char *) obstack_copy0 (&objfile->objfile_obstack,
-					    name, strlen (name));
+	  list->field.name = obstack_strdup (&objfile->objfile_obstack, name);
 	  FIELD_TYPE (list->field) = decode_type (ms, ms->c_type,
 						  &sub_aux, objfile);
 	  SET_FIELD_BITPOS (list->field, ms->c_value);
@@ -2109,8 +2107,7 @@ coff_read_enum_type (int index, int length, int lastsym,
 	case C_MOE:
 	  sym = allocate_symbol (objfile);
 
-	  name = (char *) obstack_copy0 (&objfile->objfile_obstack, name,
-					 strlen (name));
+	  name = obstack_strdup (&objfile->objfile_obstack, name);
 	  SYMBOL_SET_LINKAGE_NAME (sym, name);
 	  SYMBOL_ACLASS_INDEX (sym) = LOC_CONST;
 	  SYMBOL_DOMAIN (sym) = VAR_DOMAIN;

@@ -4788,9 +4788,16 @@ called @code{Constraint_Error} is defined in package @code{Pck}, then
 the command to use to catch such exceptions is @kbd{catch exception
 Pck.Constraint_Error}.
 
+@vindex $_ada_exception@r{, convenience variable}
+The convenience variable @code{$_ada_exception} holds the address of
+the exception being thrown.  This can be useful when setting a
+condition for such a catchpoint.
+
 @item exception unhandled
 @kindex catch exception unhandled
-An exception that was raised but is not handled by the program.
+An exception that was raised but is not handled by the program.  The
+convenience variable @code{$_ada_exception} is set as for @code{catch
+exception}.
 
 @item handlers @r{[}@var{name}@r{]}
 @kindex catch handlers
@@ -4812,9 +4819,13 @@ user-defined one.  For instance, assuming an exception called
 command to use to catch such exceptions handling is
 @kbd{catch handlers Pck.Constraint_Error}.
 
+The convenience variable @code{$_ada_exception} is set as for
+@code{catch exception}.
+
 @item assert
 @kindex catch assert
-A failed Ada assertion.
+A failed Ada assertion.  Note that the convenience variable
+@code{$_ada_exception} is @emph{not} set by this catchpoint.
 
 @item exec
 @kindex catch exec
@@ -7806,6 +7817,10 @@ Related setting: @ref{set print frame-arguments}.
 @item -raw-frame-arguments [@code{on}|@code{off}]
 Set whether to print frame arguments in raw form.
 Related setting: @ref{set print raw-frame-arguments}.
+
+@item -frame-info @code{auto}|@code{source-line}|@code{location}|@code{source-and-location}|@code{location-and-address}|@code{short-location}
+Set printing of frame information.
+Related setting: @ref{set print frame-info}.
 @end table
 
 The optional @var{qualifier} is maintained for backward compatibility.
@@ -7870,6 +7885,8 @@ The value of parameter @code{data} in frame 1 has been replaced by
 only if it is a scalar (integer, pointer, enumeration, etc).  See command
 @kbd{set print frame-arguments} in @ref{Print Settings} for more details
 on how to configure the way function parameter values are printed.
+The command @kbd{set print frame-info} (@pxref{Print Settings}) controls
+what frame information is printed.
 
 @cindex optimized out, in backtrace
 @cindex function call arguments, optimized out
@@ -8948,11 +8965,21 @@ it tries all the directories in the list, in the order they are present
 in the list, until it finds a file with the desired name.
 
 For example, suppose an executable references the file
-@file{/usr/src/foo-1.0/lib/foo.c}, and our source path is
-@file{/mnt/cross}.  The file is first looked up literally; if this
-fails, @file{/mnt/cross/usr/src/foo-1.0/lib/foo.c} is tried; if this
-fails, @file{/mnt/cross/foo.c} is opened; if this fails, an error
-message is printed.  @value{GDBN} does not look up the parts of the
+@file{/usr/src/foo-1.0/lib/foo.c}, does not record a compilation
+directory, and the @dfn{source path} is @file{/mnt/cross}.
+@value{GDBN} would look for the source file in the following
+locations:
+
+@enumerate
+
+@item @file{/usr/src/foo-1.0/lib/foo.c}
+@item @file{/mnt/cross/usr/src/foo-1.0/lib/foo.c}
+@item @file{/mnt/cross/foo.c}
+
+@end enumerate
+
+If the source file is not present at any of the above locations then
+an error is printed.  @value{GDBN} does not look up the parts of the
 source file name, such as @file{/mnt/cross/src/foo-1.0/lib/foo.c}.
 Likewise, the subdirectories of the source path are not searched: if
 the source path is @file{/mnt/cross}, and the binary refers to
@@ -8960,11 +8987,91 @@ the source path is @file{/mnt/cross}, and the binary refers to
 @file{/mnt/cross/usr/src/foo-1.0/lib}.
 
 Plain file names, relative file names with leading directories, file
-names containing dots, etc.@: are all treated as described above; for
-instance, if the source path is @file{/mnt/cross}, and the source file
-is recorded as @file{../lib/foo.c}, @value{GDBN} would first try
-@file{../lib/foo.c}, then @file{/mnt/cross/../lib/foo.c}, and after
-that---@file{/mnt/cross/foo.c}.
+names containing dots, etc.@: are all treated as described above,
+except that non-absolute file names are not looked up literally.  If
+the @dfn{source path} is @file{/mnt/cross}, the source file is
+recorded as @file{../lib/foo.c}, and no compilation directory is
+recorded, then @value{GDBN} will search in the following locations:
+
+@enumerate
+
+@item @file{/mnt/cross/../lib/foo.c}
+@item @file{/mnt/cross/foo.c}
+
+@end enumerate
+
+@kindex cdir
+@kindex cwd
+@vindex $cdir@r{, convenience variable}
+@vindex $cwd@r{, convenience variable}
+@cindex compilation directory
+@cindex current directory
+@cindex working directory
+@cindex directory, current
+@cindex directory, compilation
+The @dfn{source path} will always include two special entries
+@samp{$cdir} and @samp{$cwd}, these refer to the compilation directory
+(if one is recorded) and the current working directory respectively.
+
+@samp{$cdir} causes @value{GDBN} to search within the compilation
+directory, if one is recorded in the debug information.  If no
+compilation directory is recorded in the debug information then
+@samp{$cdir} is ignored.
+
+@samp{$cwd} is not the same as @samp{.}---the former tracks the
+current working directory as it changes during your @value{GDBN}
+session, while the latter is immediately expanded to the current
+directory at the time you add an entry to the source path.
+
+If a compilation directory is recorded in the debug information, and
+@value{GDBN} has not found the source file after the first search
+using @dfn{source path}, then @value{GDBN} will combine the
+compilation directory and the filename, and then search for the source
+file again using the @dfn{source path}.
+
+For example, if the executable records the source file as
+@file{/usr/src/foo-1.0/lib/foo.c}, the compilation directory is
+recorded as @file{/project/build}, and the @dfn{source path} is
+@file{/mnt/cross:$cdir:$cwd} while the current working directory of
+the @value{GDBN} session is @file{/home/user}, then @value{GDBN} will
+search for the source file in the following loctions:
+
+@enumerate
+
+@item @file{/usr/src/foo-1.0/lib/foo.c}
+@item @file{/mnt/cross/usr/src/foo-1.0/lib/foo.c}
+@item @file{/project/build/usr/src/foo-1.0/lib/foo.c}
+@item @file{/home/user/usr/src/foo-1.0/lib/foo.c}
+@item @file{/mnt/cross/project/build/usr/src/foo-1.0/lib/foo.c}
+@item @file{/project/build/project/build/usr/src/foo-1.0/lib/foo.c}
+@item @file{/home/user/project/build/usr/src/foo-1.0/lib/foo.c}
+@item @file{/mnt/cross/foo.c}
+@item @file{/project/build/foo.c}
+@item @file{/home/user/foo.c}
+
+@end enumerate
+
+If the file name in the previous example had been recorded in the
+executable as a relative path rather than an absolute path, then the
+first look up would not have occurred, but all of the remaining steps
+would be similar.
+
+When searching for source files on MS-DOS and MS-Windows, where
+absolute paths start with a drive letter (e.g.
+@file{C:/project/foo.c}), @value{GDBN} will remove the drive letter
+from the file name before appending it to a search directory from
+@dfn{source path}; for instance if the executable references the
+source file @file{C:/project/foo.c} and @dfn{source path} is set to
+@file{D:/mnt/cross}, then @value{GDBN} will search in the following
+locations for the source file:
+
+@enumerate
+
+@item @file{C:/project/foo.c}
+@item @file{D:/mnt/cross/project/foo.c}
+@item @file{D:/mnt/cross/foo.c}
+
+@end enumerate
 
 Note that the executable search path is @emph{not} used to locate the
 source files.
@@ -8975,8 +9082,8 @@ each line is in the file.
 
 @kindex directory
 @kindex dir
-When you start @value{GDBN}, its source path includes only @samp{cdir}
-and @samp{cwd}, in that order.
+When you start @value{GDBN}, its source path includes only @samp{$cdir}
+and @samp{$cwd}, in that order.
 To add other directories, use the @code{directory} command.
 
 The search path is used to find both program source files and @value{GDBN}
@@ -9052,21 +9159,12 @@ part of absolute file names) or
 whitespace.  You may specify a directory that is already in the source
 path; this moves it forward, so @value{GDBN} searches it sooner.
 
-@kindex cdir
-@kindex cwd
-@vindex $cdir@r{, convenience variable}
-@vindex $cwd@r{, convenience variable}
-@cindex compilation directory
-@cindex current directory
-@cindex working directory
-@cindex directory, current
-@cindex directory, compilation
-You can use the string @samp{$cdir} to refer to the compilation
-directory (if one is recorded), and @samp{$cwd} to refer to the current
-working directory.  @samp{$cwd} is not the same as @samp{.}---the former
-tracks the current working directory as it changes during your @value{GDBN}
-session, while the latter is immediately expanded to the current
-directory at the time you add an entry to the source path.
+The special strings @samp{$cdir} (to refer to the compilation
+directory, if one is recorded), and @samp{$cwd} (to refer to the
+current working directory) can also be included in the list of
+directories @var{dirname}.  Though these will already be in the source
+path they will be moved forward in the list so @value{GDBN} searches
+them sooner.
 
 @item directory
 Reset the source path to its default value (@samp{$cdir:$cwd} on Unix systems).  This requires confirmation.
@@ -10816,7 +10914,7 @@ If the number is 0, then the printing is unlimited.
 @cindex printing frame argument values
 @cindex print all frame argument values
 @cindex print frame argument values for scalars only
-@cindex do not print frame argument values
+@cindex do not print frame arguments
 This command allows to control how the values of arguments are printed
 when the debugger prints a frame (@pxref{Frames}).  The possible
 values are:
@@ -10844,6 +10942,17 @@ is replaced by @code{@dots{}}.  In this case, the example above now becomes:
 #1  0x08048361 in call_me (i=@dots{}, s=@dots{}, ss=@dots{}, u=@dots{}, e=@dots{})
   at frame-args.c:23
 @end smallexample
+
+@item presence
+Only the presence of arguments is indicated by @code{@dots{}}.
+The @code{@dots{}} are not printed for function without any arguments.
+None of the argument names and values are printed.
+In this case, the example above now becomes:
+
+@smallexample
+#1  0x08048361 in call_me (@dots{}) at frame-args.c:23
+@end smallexample
+
 @end table
 
 By default, only scalar arguments are printed.  This command can be used
@@ -10854,8 +10963,8 @@ information printed in each frame, making the backtrace more readable.
 Also, it improves performance when displaying Ada frames, because
 the computation of large arguments can sometimes be CPU-intensive,
 especially in large applications.  Setting @code{print frame-arguments}
-to @code{scalars} (the default) or @code{none} avoids this computation,
-thus speeding up the display of each Ada frame.
+to @code{scalars} (the default), @code{none} or @code{presence} avoids
+this computation, thus speeding up the display of each Ada frame.
 
 @item show print frame-arguments
 Show how the value of arguments should be displayed when printing a frame.
@@ -10987,6 +11096,46 @@ entry resolution see @ref{set debug entry-values}.
 @item show print entry-values
 Show the method being used for printing of frame argument values at function
 entry.
+
+@anchor{set print frame-info}
+@item set print frame-info @var{value}
+@kindex set print frame-info
+@cindex printing frame information
+@cindex frame information, printing
+This command allows to control the information printed when
+the debugger prints a frame.  See @ref{Frames}, @ref{Backtrace},
+for a general explanation about frames and frame information.
+Note that some other settings (such as @code{set print frame-arguments}
+and @code{set print address}) are also influencing if and how some frame
+information is displayed.  In particular, the frame program counter is never
+printed if @code{set print address} is off.
+
+The possible values for @code{set print frame-info} are:
+@table @code
+@item short-location
+Print the frame level, the program counter (if not at the
+beginning of the location source line), the function, the function
+arguments.
+@item location
+Same as @code{short-location} but also print the source file and source line
+number.
+@item location-and-address
+Same as @code{location} but print the program counter even if located at the
+beginning of the location source line.
+@item source-line
+Print the program counter (if not at the beginning of the location
+source line), the line number and the source line.
+@item source-and-location
+Print what @code{location} and @code{source-line} are printing.
+@item auto
+The information printed for a frame is decided automatically
+by the @value{GDBN} command that prints a frame.
+For example, @code{frame} prints the information printed by
+@code{source-and-location} while @code{stepi} will switch between
+@code{source-line} and @code{source-and-location} depending on the program
+counter.
+The default value is @code{auto}.
+@end table
 
 @anchor{set print repeats}
 @item set print repeats @var{number-of-repeats}
@@ -11684,6 +11833,11 @@ The program has exited
 @item $_exception
 The variable @code{$_exception} is set to the exception object being
 thrown at an exception-related catchpoint.  @xref{Set Catchpoints}.
+
+@item $_ada_exception
+The variable @code{$_ada_exception} is set to the address of the
+exception being caught or thrown at an Ada exception-related
+catchpoint.  @xref{Set Catchpoints}.
 
 @item $_probe_argc
 @itemx $_probe_arg0@dots{}$_probe_arg11
@@ -16416,6 +16570,10 @@ The access component operator.  Normally used to access elements in derived
 types.  Also suitable for unions.  As unions aren't part of regular Fortran,
 this can only happen when accessing a register that uses a gdbarch-defined
 union type.
+@item ::
+The scope operator.  Normally used to access variables in modules or
+to set breakpoints on subroutines nested in modules or in other
+subroutines (internal subroutines).
 @end table
 
 @node Fortran Defaults
@@ -17694,10 +17852,10 @@ the following example:
 *  2   807c468    1  15 Runnable               task_1
 (@value{GDBP}) info task 2
 Ada Task: 0x807c468
-Name: task_1
+Name: "task_1"
 Thread: 0
 LWP: 0x1fac
-Parent: 1 (main_task)
+Parent: 1 ("main_task")
 Base Priority: 15
 State: Runnable
 @end smallexample
@@ -17705,7 +17863,7 @@ State: Runnable
 @item task
 @kindex task@r{ (Ada)}
 @cindex current Ada task ID
-This command prints the ID of the current task.
+This command prints the ID and name of the current task.
 
 @smallexample
 @iftex
@@ -17714,9 +17872,9 @@ This command prints the ID of the current task.
 (@value{GDBP}) info tasks
   ID       TID P-ID Pri State                  Name
    1   8077870    0  15 Child Activation Wait  main_task
-*  2   807c458    1  15 Runnable               t
+*  2   807c458    1  15 Runnable               some_task
 (@value{GDBP}) task
-[Current task is 2]
+[Current task is 2 "some_task"]
 @end smallexample
 
 @item task @var{taskno}
@@ -17732,9 +17890,9 @@ from the current task to the given task.
 (@value{GDBP}) info tasks
   ID       TID P-ID Pri State                  Name
    1   8077870    0  15 Child Activation Wait  main_task
-*  2   807c458    1  15 Runnable               t
+*  2   807c458    1  15 Runnable               some_task
 (@value{GDBP}) task 1
-[Switching to task 1]
+[Switching to task 1 "main_task"]
 #0  0x8067726 in pthread_cond_wait ()
 (@value{GDBP}) bt
 #0  0x8067726 in pthread_cond_wait ()
@@ -18526,8 +18684,18 @@ Print the names of all source files in your program for which there is
 debugging information, organized into two lists: files whose symbols
 have already been read, and files whose symbols will be read when needed.
 
+@item info sources [-dirname | -basename] [--] [@var{regexp}]
+Like @samp{info sources}, but only print the names of the files
+matching the provided @var{regexp}.
+By default, the @var{regexp} is used to match anywhere in the filename.
+If @code{-dirname}, only files having a dirname matching @var{regexp} are shown.
+If  @code{-basename}, only files having a basename matching @var{regexp}
+are shown.
+The matching is case-sensitive, except on operating systems that
+have case-insensitive filesystem (e.g., MS-Windows).
+
 @kindex info functions
-@item info functions [-q]
+@item info functions [-q] [-n]
 Print the names and data types of all defined functions.
 Similarly to @samp{info types}, this command groups its output by source
 files and annotates each function definition with its source line
@@ -18540,11 +18708,16 @@ to print the function name and type according to the
 language of the function, other values mean to use
 the manually specified language (see @ref{Manually, ,Set Language Manually}).
 
+The @samp{-n} flag excludes @dfn{non-debugging symbols} from the
+results.  A non-debugging symbol is a symbol that comes from the
+executable's symbol table, not from the debug information (for
+example, DWARF) associated with the executable.
+
 The optional flag @samp{-q}, which stands for @samp{quiet}, disables
 printing header information and messages explaining why no functions
 have been printed.
 
-@item info functions [-q] [-t @var{type_regexp}] [@var{regexp}]
+@item info functions [-q] [-n] [-t @var{type_regexp}] [@var{regexp}]
 Like @samp{info functions}, but only print the names and data types
 of the functions selected with the provided regexp(s).
 
@@ -18574,7 +18747,7 @@ is printed only if its name matches @var{regexp} and its type matches
 
 
 @kindex info variables
-@item info variables [-q]
+@item info variables [-q] [-n]
 Print the names and data types of all variables that are defined
 outside of functions (i.e.@: excluding local variables).
 The printed variables are grouped by source files and annotated with
@@ -18587,11 +18760,13 @@ to print the variable name and type according to the
 language of the variable, other values mean to use
 the manually specified language (see @ref{Manually, ,Set Language Manually}).
 
+The @samp{-n} flag excludes non-debugging symbols from the results.
+
 The optional flag @samp{-q}, which stands for @samp{quiet}, disables
 printing header information and messages explaining why no variables
 have been printed.
 
-@item info variables [-q] [-t @var{type_regexp}] [@var{regexp}]
+@item info variables [-q] [-n] [-t @var{type_regexp}] [@var{regexp}]
 Like @kbd{info variables}, but only print the variables selected
 with the provided regexp(s).
 
@@ -20862,8 +21037,8 @@ $ gdb -iex "set use-deprecated-index-sections on" <program>
 @end smallexample
 
 There are currently some limitation on indices.  They only work when
-for DWARF debugging information, not stabs.  And, they do not
-currently work for programs using Ada.
+using DWARF debugging information, not stabs.  And, only the
+@code{-dwarf-5} index works for programs using Ada.
 
 @subsection Automatic symbol index cache
 
@@ -22407,14 +22582,6 @@ are:
 @item @code{read-sdata-object}
 @tab @code{qXfer:sdata:read}
 @tab @code{print $_sdata}
-
-@item @code{read-spu-object}
-@tab @code{qXfer:spu:read}
-@tab @code{info spu}
-
-@item @code{write-spu-object}
-@tab @code{qXfer:spu:write}
-@tab @code{info spu}
 
 @item @code{read-siginfo-object}
 @tab @code{qXfer:siginfo:read}
@@ -24283,7 +24450,6 @@ all uses of @value{GDBN} with the architecture, both native and cross.
 * Alpha::
 * MIPS::
 * HPPA::               HP PA architecture
-* SPU::                Cell Broadband Engine SPU architecture
 * PowerPC::
 * Nios II::
 * Sparc64::
@@ -24323,6 +24489,15 @@ but the lengths of the @code{z} and @code{p} registers will not change.  This
 is a known limitation of @value{GDBN} and does not affect the execution of the
 target process.
 
+@subsubsection AArch64 Pointer Authentication.
+@cindex AArch64 Pointer Authentication.
+
+When @value{GDBN} is debugging the AArch64 architecture, and the program is
+using the v8.3-A feature Pointer Authentication (PAC), then whenever the link
+register @code{$lr} is pointing to an PAC function its value will be masked.
+When GDB prints a backtrace, any addresses that required unmasking will be
+postfixed with the marker [PAC].  When using the MI, this is printed as part
+of the @code{addr_flags} field.
 
 @node i386
 @subsection x86 Architecture-specific Issues
@@ -24589,69 +24764,6 @@ given @var{address}.
 @end table
 
 
-@node SPU
-@subsection Cell Broadband Engine SPU architecture
-@cindex Cell Broadband Engine
-@cindex SPU
-
-When @value{GDBN} is debugging the Cell Broadband Engine SPU architecture,
-it provides the following special commands:
-
-@table @code
-@item info spu event
-@kindex info spu
-Display SPU event facility status.  Shows current event mask
-and pending event status.
-
-@item info spu signal
-Display SPU signal notification facility status.  Shows pending
-signal-control word and signal notification mode of both signal
-notification channels.
-
-@item info spu mailbox
-Display SPU mailbox facility status.  Shows all pending entries,
-in order of processing, in each of the SPU Write Outbound,
-SPU Write Outbound Interrupt, and SPU Read Inbound mailboxes.
-
-@item info spu dma
-Display MFC DMA status.  Shows all pending commands in the MFC
-DMA queue.  For each entry, opcode, tag, class IDs, effective
-and local store addresses and transfer size are shown.
-
-@item info spu proxydma
-Display MFC Proxy-DMA status.  Shows all pending commands in the MFC
-Proxy-DMA queue.  For each entry, opcode, tag, class IDs, effective
-and local store addresses and transfer size are shown.
-
-@end table
- 
-When @value{GDBN} is debugging a combined PowerPC/SPU application
-on the Cell Broadband Engine, it provides in addition the following
-special commands:
-
-@table @code
-@item set spu stop-on-load @var{arg}
-@kindex set spu
-Set whether to stop for new SPE threads.  When set to @code{on}, @value{GDBN}
-will give control to the user when a new SPE thread enters its @code{main}
-function.  The default is @code{off}.
-
-@item show spu stop-on-load
-@kindex show spu
-Show whether to stop for new SPE threads.
-
-@item set spu auto-flush-cache @var{arg}
-Set whether to automatically flush the software-managed cache.  When set to
-@code{on}, @value{GDBN} will automatically cause the SPE software-managed
-cache to be flushed whenever SPE execution stops.  This provides a consistent
-view of PowerPC memory that is accessed via the cache.  If an application
-does not use the software-managed cache, this option has no effect.
-
-@item show spu auto-flush-cache
-Show whether to automatically flush the software-managed cache.
-
-@end table
-
 @node PowerPC
 @subsection PowerPC
 @cindex PowerPC architecture
@@ -24891,6 +25003,10 @@ Show whether command line editing is enabled.
 for more details about the Readline
 interface.  Users unfamiliar with @sc{gnu} Emacs or @code{vi} are
 encouraged to read that chapter.
+
+@cindex Readline application name
+@value{GDBN} sets the Readline application name to @samp{gdb}.  This
+is useful for conditions in @file{.inputrc}.
 
 @node Command History
 @section Command History
@@ -27494,6 +27610,10 @@ with the TUI SingleKey mode.  Once the command is entered the TUI
 SingleKey mode is restored.  The only way to permanently leave
 this mode is by typing @kbd{q} or @kbd{C-x s}.
 
+@cindex SingleKey keymap name
+If @value{GDBN} was built with Readline 8.0 or later, the TUI
+SingleKey keymap will be named @samp{SingleKey}.  This can be used in
+@file{.inputrc} to add additional bindings to this keymap.
 
 @node TUI Commands
 @section TUI-specific Commands
@@ -27514,7 +27634,7 @@ possible or desirable to enable curses window management.
 @item tui enable
 @kindex tui enable
 Activate TUI mode.  The last active TUI window layout will be used if
-TUI mode has prevsiouly been used in the current debugging session,
+TUI mode has previously been used in the current debugging session,
 otherwise a default layout is used.
 
 @item tui disable
@@ -28850,6 +28970,11 @@ breakpoint; or the string @samp{<MULTIPLE>}, for a breakpoint with
 multiple locations.  This field will not be present if no address can
 be determined.  For example, a watchpoint does not have an address.
 
+@item addr_flags
+Optional field containing any flags related to the address.  These flags are
+architecture-dependent; see @ref{Architectures} for their meaning for a
+particular CPU.
+
 @item func
 If known, the function in which the breakpoint appears.
 If not known, this field is not present.
@@ -28950,6 +29075,11 @@ Note that this is not the same as the field @code{enable}.
 @item addr
 The address of this location as an hexidecimal number.
 
+@item addr_flags
+Optional field containing any flags related to the address.  These flags are
+architecture-dependent; see @ref{Architectures} for their meaning for a
+particular CPU.
+
 @item func
 If known, the function in which the location appears.
 If not known, this field is not present.
@@ -29001,6 +29131,11 @@ be absent if @value{GDBN} is unable to determine the function name.
 
 @item addr
 The code address for the frame.  This field is always present.
+
+@item addr_flags
+Optional field containing any flags related to the address.  These flags are
+architecture-dependent; see @ref{Architectures} for their meaning for a
+particular CPU.
 
 @item file
 The name of the source files that correspond to the frame's code
@@ -36830,7 +36965,8 @@ details.
 
 @item --with-system-readline
 Use the readline library installed on the host, rather than the
-library supplied as part of @value{GDBN}.
+library supplied as part of @value{GDBN}.  Readline 7 or newer is
+required; this is enforced by the build system.
 
 @item --with-system-zlib
 Use the zlib library installed on the host, rather than the library
@@ -39922,16 +40058,6 @@ These are the currently defined stub features and their properties:
 @tab @samp{-}
 @tab Yes
 
-@item @samp{qXfer:spu:read}
-@tab No
-@tab @samp{-}
-@tab Yes
-
-@item @samp{qXfer:spu:write}
-@tab No
-@tab @samp{-}
-@tab Yes
-
 @item @samp{qXfer:siginfo:read}
 @tab No
 @tab @samp{-}
@@ -40163,14 +40289,6 @@ The remote stub understands the @samp{qXfer:memory-map:read} packet
 @item qXfer:sdata:read
 The remote stub understands the @samp{qXfer:sdata:read} packet
 (@pxref{qXfer sdata read}).
-
-@item qXfer:spu:read
-The remote stub understands the @samp{qXfer:spu:read} packet
-(@pxref{qXfer spu read}).
-
-@item qXfer:spu:write
-The remote stub understands the @samp{qXfer:spu:write} packet
-(@pxref{qXfer spu write}).
 
 @item qXfer:siginfo:read
 The remote stub understands the @samp{qXfer:siginfo:read} packet
@@ -40617,18 +40735,6 @@ This packet is not probed by default; the remote stub must request it,
 by supplying an appropriate @samp{qSupported} response
 (@pxref{qSupported}).
 
-@item qXfer:spu:read:@var{annex}:@var{offset},@var{length}
-@anchor{qXfer spu read}
-Read contents of an @code{spufs} file on the target system.  The
-annex specifies which file to read; it must be of the form 
-@file{@var{id}/@var{name}}, where @var{id} specifies an SPU context ID
-in the target process, and @var{name} identifes the @code{spufs} file
-in that context to be accessed.
-
-This packet is not probed by default; the remote stub must request it,
-by supplying an appropriate @samp{qSupported} response
-(@pxref{qSupported}).
-
 @item qXfer:threads:read::@var{offset},@var{length}
 @anchor{qXfer threads read}
 Access the list of threads on target.  @xref{Thread List Format}.  The
@@ -40714,17 +40820,6 @@ empty (@pxref{qXfer write}).
 This packet is not probed by default; the remote stub must request it,
 by supplying an appropriate @samp{qSupported} response
 (@pxref{qSupported}).
-
-@item qXfer:spu:write:@var{annex}:@var{offset}:@var{data}@dots{}
-@anchor{qXfer spu write}
-Write @var{data} to an @code{spufs} file on the target system.  The
-annex specifies which file to write; it must be of the form
-@file{@var{id}/@var{name}}, where @var{id} specifies an SPU context ID
-in the target process, and @var{name} identifes the @code{spufs} file
-in that context to be accessed.
-
-This packet is not probed by default; the remote stub must request it,
-by supplying an appropriate @samp{qSupported} response (@pxref{qSupported}).
 @end table
 
 @item qXfer:@var{object}:@var{operation}:@dots{}
@@ -43992,6 +44087,7 @@ registers using the capitalization used in the description.
 * OpenRISC 1000 Features::
 * PowerPC Features::
 * RISC-V Features::
+* RX Features::
 * S/390 and System z Features::
 * Sparc Features::
 * TIC6x Features::
@@ -44421,6 +44517,15 @@ expectation is that these registers will be in the fpu feature if the
 target has floating point hardware, but can be moved into the csr
 feature if the target has the floating point control registers, but no
 other floating point hardware.
+
+@node RX Features
+@subsection RX Features
+@cindex target descriptions, RX Features
+
+The @samp{org.gnu.gdb.rx.core} feature is required for RX
+targets.  It should contain the registers @samp{r0} through
+@samp{r15}, @samp{usp}, @samp{isp}, @samp{psw}, @samp{pc}, @samp{intb},
+@samp{bpsw}, @samp{bpc}, @samp{fintv}, @samp{fpsw}, and @samp{acc}.
 
 @node S/390 and System z Features
 @subsection S/390 and System z Features

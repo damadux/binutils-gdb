@@ -197,6 +197,7 @@ nacl_modify_segment_map (bfd *abfd, struct bfd_link_info *info)
 		 included the file header and phdrs.  */
 	      seg->includes_filehdr = 0;
 	      seg->includes_phdrs = 0;
+	      seg->no_sort_lma = 1;
 	      /* Also strip out empty segments.  */
 	      if (seg->count == 0)
 		{
@@ -320,8 +321,8 @@ nacl_modify_program_headers (bfd *abfd, struct bfd_link_info *info)
   return TRUE;
 }
 
-void
-nacl_final_write_processing (bfd *abfd, bfd_boolean linker)
+bfd_boolean
+nacl_final_write_processing (bfd *abfd)
 {
   struct elf_segment_map *seg;
   for (seg = elf_seg_map (abfd); seg != NULL; seg = seg->next)
@@ -354,5 +355,5 @@ nacl_final_write_processing (bfd *abfd, bfd_boolean linker)
 
 	free (fill);
       }
-  _bfd_elf_final_write_processing (abfd, linker);
+  return _bfd_elf_final_write_processing (abfd);
 }

@@ -529,6 +529,13 @@ struct elf_sym_strtab
   unsigned long destshndx_index;
 };
 
+struct bfd_link_needed_list
+{
+  struct bfd_link_needed_list *next;
+  bfd *by;
+  const char *name;
+};
+
 /* ELF linker hash table.  */
 
 struct elf_link_hash_table
@@ -1141,10 +1148,9 @@ struct elf_backend_data
     (bfd *, struct bfd_link_info *);
 
   /* A function to do any final processing needed for the ELF file
-     before writing it out.  The LINKER argument is TRUE if this BFD
-     was created by the ELF backend linker.  */
-  void (*elf_backend_final_write_processing)
-    (bfd *, bfd_boolean linker);
+     before writing it out.  */
+  bfd_boolean (*elf_backend_final_write_processing)
+    (bfd *);
 
   /* This function is called by get_program_header_size.  It should
      return the number of additional program segments which this BFD
@@ -1392,6 +1398,13 @@ struct elf_backend_data
 
   /* Return TRUE if symbol should be hashed in the `.gnu.hash' section.  */
   bfd_boolean (*elf_hash_symbol) (struct elf_link_hash_entry *);
+
+  /* If non-NULL, called to register the location of XLAT_LOC within
+     .MIPS.xhash at which real final dynindx for H will be written.
+     If XLAT_LOC is zero, the symbol is not included in
+     .MIPS.xhash and no dynindx will be written.  */
+  void (*record_xhash_symbol)
+    (struct elf_link_hash_entry *h, bfd_vma xlat_loc);
 
   /* Return TRUE if type is a function symbol type.  */
   bfd_boolean (*is_function_type) (unsigned int type);
@@ -1801,10 +1814,6 @@ struct output_elf_obj_tdata
   /* Segment flags for the PT_GNU_STACK segment.  */
   unsigned int stack_flags;
 
-  /* This is set to TRUE if the object was created by the backend
-     linker.  */
-  bfd_boolean linker;
-
   /* Used to determine if the e_flags field has been initialized */
   bfd_boolean flags_init;
 };
@@ -1825,6 +1834,14 @@ typedef struct elf_section_list
   unsigned int		     ndx;
   struct elf_section_list *  next;
 } elf_section_list;
+
+enum dynamic_lib_link_class {
+  DYN_NORMAL = 0,
+  DYN_AS_NEEDED = 1,
+  DYN_DT_NEEDED = 2,
+  DYN_NO_ADD_NEEDED = 4,
+  DYN_NO_NEEDED = 8
+};
 
 /* Some private data is stashed away for future use using the tdata pointer
    in the bfd structure.  */
@@ -1968,7 +1985,6 @@ struct elf_obj_tdata
 #define elf_seg_map(bfd)	(elf_tdata(bfd) -> o->seg_map)
 #define elf_next_file_pos(bfd)	(elf_tdata(bfd) -> o->next_file_pos)
 #define elf_eh_frame_hdr(bfd)	(elf_tdata(bfd) -> o->eh_frame_hdr)
-#define elf_linker(bfd)		(elf_tdata(bfd) -> o->linker)
 #define elf_stack_flags(bfd)	(elf_tdata(bfd) -> o->stack_flags)
 #define elf_shstrtab(bfd)	(elf_tdata(bfd) -> o->strtab_ptr)
 #define elf_onesymtab(bfd)	(elf_tdata(bfd) -> symtab_section)
@@ -2035,6 +2051,7 @@ extern char *bfd_elf_string_from_elf_section
 extern Elf_Internal_Sym *bfd_elf_get_elf_syms
   (bfd *, Elf_Internal_Shdr *, size_t, size_t, Elf_Internal_Sym *, void *,
    Elf_External_Sym_Shndx *);
+extern char * bfd_elf_get_str_section (bfd *, unsigned int);
 extern const char *bfd_elf_sym_name
   (bfd *, Elf_Internal_Shdr *, Elf_Internal_Sym *, asection *);
 
@@ -2109,6 +2126,8 @@ extern bfd_boolean _bfd_elf_merge_sections
 extern bfd_boolean _bfd_elf_match_sections_by_type
   (bfd *, const asection *, bfd *, const asection *);
 extern bfd_boolean bfd_elf_is_group_section
+  (bfd *, const struct bfd_section *);
+extern const char *bfd_elf_group_name
   (bfd *, const struct bfd_section *);
 extern bfd_boolean _bfd_elf_section_already_linked
   (bfd *, asection *, struct bfd_link_info *);
@@ -2233,8 +2252,12 @@ extern void _bfd_elf_strtab_restore
   (struct elf_strtab_hash *, void *);
 extern bfd_size_type _bfd_elf_strtab_size
   (struct elf_strtab_hash *);
+extern bfd_size_type _bfd_elf_strtab_len
+  (struct elf_strtab_hash *);
 extern bfd_size_type _bfd_elf_strtab_offset
   (struct elf_strtab_hash *, size_t);
+extern const char * _bfd_elf_strtab_str
+  (struct elf_strtab_hash *, size_t idx, bfd_size_type *offset);
 extern bfd_boolean _bfd_elf_strtab_emit
   (bfd *, struct elf_strtab_hash *);
 extern void _bfd_elf_strtab_finalize
@@ -2283,6 +2306,37 @@ extern file_ptr _bfd_elf_assign_file_position_for_section
 
 extern bfd_boolean _bfd_elf_validate_reloc
   (bfd *, arelent *);
+
+extern bfd_boolean bfd_elf_record_link_assignment
+  (bfd *, struct bfd_link_info *, const char *, bfd_boolean,
+   bfd_boolean);
+extern bfd_boolean bfd_elf_stack_segment_size (bfd *, struct bfd_link_info *,
+					       const char *, bfd_vma);
+extern bfd_boolean bfd_elf_size_dynamic_sections
+  (bfd *, const char *, const char *, const char *, const char *, const char *,
+   const char * const *, struct bfd_link_info *, struct bfd_section **);
+extern bfd_boolean bfd_elf_size_dynsym_hash_dynstr
+  (bfd *, struct bfd_link_info *);
+extern bfd_boolean bfd_elf_get_bfd_needed_list
+  (bfd *, struct bfd_link_needed_list **);
+extern struct bfd_link_needed_list *bfd_elf_get_needed_list
+  (bfd *, struct bfd_link_info *);
+extern void bfd_elf_set_dt_needed_name
+  (bfd *, const char *);
+extern const char *bfd_elf_get_dt_soname
+  (bfd *);
+extern void bfd_elf_set_dyn_lib_class
+  (bfd *, enum dynamic_lib_link_class);
+extern int bfd_elf_get_dyn_lib_class
+  (bfd *);
+extern struct bfd_link_needed_list *bfd_elf_get_runpath_list
+  (bfd *, struct bfd_link_info *);
+extern int bfd_elf_discard_info
+  (bfd *, struct bfd_link_info *);
+extern unsigned int _bfd_elf_default_action_discarded
+  (struct bfd_section *);
+extern struct bfd_section *_bfd_elf_tls_setup
+  (bfd *, struct bfd_link_info *);
 
 extern bfd_boolean _bfd_elf_link_create_dynamic_sections
   (bfd *, struct bfd_link_info *);
@@ -2335,7 +2389,7 @@ extern struct bfd_link_hash_entry *bfd_elf_define_start_stop
 
 extern void _bfd_elf_post_process_headers (bfd *, struct bfd_link_info *);
 
-extern void _bfd_elf_final_write_processing (bfd *, bfd_boolean);
+extern bfd_boolean _bfd_elf_final_write_processing (bfd *);
 
 extern const bfd_target *bfd_elf32_object_p
   (bfd *);
@@ -2553,6 +2607,22 @@ extern bfd_boolean _bfd_elf_ppc_set_arch (bfd *);
 /* PowerPC .gnu.attributes handling common to both 32-bit and 64-bit.  */
 extern bfd_boolean _bfd_elf_ppc_merge_fp_attributes
   (bfd *, struct bfd_link_info *);
+
+/* Return an upper bound on the number of bytes required to store a
+   copy of ABFD's program header table entries.  Return -1 if an error
+   occurs; bfd_get_error will return an appropriate code.  */
+extern long bfd_get_elf_phdr_upper_bound
+  (bfd *abfd);
+
+/* Copy ABFD's program header table entries to *PHDRS.  The entries
+   will be stored as an array of Elf_Internal_Phdr structures, as
+   defined in include/elf/internal.h.  To find out how large the
+   buffer needs to be, call bfd_get_elf_phdr_upper_bound.
+
+   Return the number of program header table entries read, or -1 if an
+   error occurs; bfd_get_error will return an appropriate code.  */
+extern int bfd_get_elf_phdrs
+  (bfd *abfd, void *phdrs);
 
 /* Exported interface for writing elf corefile notes.  */
 extern char *elfcore_write_note
@@ -2894,6 +2964,14 @@ extern asection _bfd_elf_large_com_section;
      && ((INFO)->symbolic \
 	 || (H)->start_stop \
 	 || ((INFO)->dynamic && !(H)->dynamic)))
+
+/* Determine if a section contains CTF data, using its name.  */
+static inline bfd_boolean
+bfd_section_is_ctf (const asection *sec)
+{
+  const char *name = bfd_section_name (sec);
+  return strncmp (name, ".ctf", 4) == 0 && (name[4] == 0 || name[4] == '.');
+}
 
 #ifdef __cplusplus
 }

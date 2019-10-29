@@ -243,20 +243,14 @@
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
 
-/* Define to 1 if you have the `mcheck' library (-lmcheck). */
-#undef HAVE_LIBMCHECK
-
 /* Define if you have the mpfr library. */
 #undef HAVE_LIBMPFR
 
-/* Define if Python 2.6 is being used. */
-#undef HAVE_LIBPYTHON2_6
-
-/* Define if Python 2.7 is being used. */
-#undef HAVE_LIBPYTHON2_7
-
 /* Define to 1 if you have the <libunwind-ia64.h> header file. */
 #undef HAVE_LIBUNWIND_IA64_H
+
+/* Define if you have the xxhash library. */
+#undef HAVE_LIBXXHASH
 
 /* Define to 1 if you have the <linux/elf.h> header file. */
 #undef HAVE_LINUX_ELF_H
