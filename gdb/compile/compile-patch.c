@@ -214,7 +214,7 @@ compile_patch_file_command (const char *arg, int from_tty)
   if (source_file == NULL)
     {
       free (dup);
-      error ("Missing the second argument for the patch code command.");
+      error ("Missing the second argument for the patch file command.");
     }
   gdb::unique_xmalloc_ptr<char> abspath = gdb_abspath (source_file);
   std::string code_buf
