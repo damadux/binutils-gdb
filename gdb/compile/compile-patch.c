@@ -40,16 +40,57 @@
 PatchVector all_patches;
 Patch *current_patch;
 
+static int 
+mov_reg(unsigned char *trampoline_instr, struct regs_store_data reg_store_info)
+{
+  int correct[16]={0,3,1,2,6,7,5,4,8,9,10,11,12,13,14,15};
+  ULONGEST offset = reg_store_info.reg_offset;
+  int regnum = reg_store_info.regnum;
+  if(regnum>15 || regnum < 0)
+  {
+    fprintf_filtered(gdb_stdlog, "Expected register number < 16\n");
+    fprintf_filtered(gdb_stdlog, "Got number %d \n", regnum);
+    return 0;
+  }
+  regnum = correct[regnum];
+
+  int i = 0;
+  if(regnum<8)
+    trampoline_instr[i++] = '\x48';
+  else
+    trampoline_instr[i++] = '\x4c';
+  trampoline_instr[i++] = '\x89';
+  trampoline_instr[i++] = '\x87'+'\x8'*(regnum%8);
+  int32_t offset32 = (int32_t) offset;
+  memcpy(trampoline_instr+i, &offset32, 4);
+  i+=4;
+  return i;
+}
 /* Fills the trampoline but does not relocate the replaced instruction */
 int
 fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
-                 CORE_ADDR arg_regs)
+                 CORE_ADDR arg_regs, struct regs_store_data *regs_store_info, int regs_store_len)
 {
 
   int i = 0;
   /* save registers */
   /* flags may cause bug when stepped over */
   trampoline_instr[i++] = 0x9c; /* pushfq */ 
+
+  /* rsp -= 0x80 for the red zone */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x83; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x80; 
+  /* or */
+  /* Store rax at rsp -0x80 */
+  /* Move flags to ah */
+  /* add -0x88 to rsp */
+  /* push regs  */
+  /* pop every reg */
+  /* add 0x88 to rsp */
+  /* mov ah to flags */
+  
   trampoline_instr[i++] = 0x54; /* push %rsp */
   trampoline_instr[i++] = 0x55; /* push %rbp */
   trampoline_instr[i++] = 0x57; /* push %rdi */
@@ -75,6 +116,8 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x50; /* push %r8 */
 
+  trampoline_instr[i++] = 0x55; /* push %rbp for stack alignement */
+
       
 
   /* provide gdb_expr () arguments */
@@ -82,9 +125,13 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0xbf;
   memcpy (trampoline_instr + i, &arg_regs, 8);
   i += 8;
-  trampoline_instr[i++] = 0x48; /* mov %rbp, (%rdi) */
-  trampoline_instr[i++] = 0x89;
-  trampoline_instr[i++] = 0x2f;
+  for(int j =0; j < regs_store_len; j++)
+  {
+    i += mov_reg(trampoline_instr+i, regs_store_info[j]);
+  }
+  // trampoline_instr[i++] = 0x48; /* mov %rbp, (%rdi) */
+  // trampoline_instr[i++] = 0x89;
+  // trampoline_instr[i++] = 0x2f;
 
   /* call gdb_expr () */
   trampoline_instr[i++] = 0x48; /* movabs <called>,%rax */
@@ -95,6 +142,8 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0xd0;
 
   /* restore registers */
+  trampoline_instr[i++] = 0x5d; /* pop %rbp (stack alignment)*/
+
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x58; /* pop %r8 */
   trampoline_instr[i++] = 0x41;
@@ -111,6 +160,7 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x5e; /* pop %r14 */
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x5f; /* pop %r15 */
+  trampoline_instr[i++] = 0x58; /* pop %rbx */
   trampoline_instr[i++] = 0x5b; /* pop %rbx */
   trampoline_instr[i++] = 0x59; /* pop %rcx */
   trampoline_instr[i++] = 0x5a; /* pop %rdx */
@@ -118,8 +168,15 @@ fill_trampoline (unsigned char *trampoline_instr, CORE_ADDR called,
   trampoline_instr[i++] = 0x5f; /* pop %rdi */
   trampoline_instr[i++] = 0x5d; /* pop %rbp */
   trampoline_instr[i++] = 0x5c; /* pop %rsp */
+  /* rsp += 0x80 */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x81; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x80; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x00; 
   trampoline_instr[i++] = 0x9d; /* popfq */
-
 
   return i;
 }
@@ -136,6 +193,14 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   /* save registers */
   /* flags may cause a bug when stepped over */
   buf[i++] = 0x9c; /* pushfq */ 
+
+
+  /* rsp -= 0x80 for the red zone */
+  buf[i++] = 0x48; 
+  buf[i++] = 0x83; 
+  buf[i++] = 0xc4; 
+  buf[i++] = 0x80; 
+
   buf[i++] = 0x54; /* push %rsp */
   buf[i++] = 0x55; /* push %rbp */
   buf[i++] = 0x57; /* push %rdi */
@@ -224,7 +289,7 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
   {
     buf[i++] = 0x48; /* lea disp(%rdi), %rsi */
     buf[i++] = 0x8d;
-    if((disp >= 0x80) || (disp < -0x80))
+    if((disp > 0x80) || (disp < -0x80))
     {
       buf[i++]=0xb7;
       memcpy (buf + i, &disp, 2);
@@ -306,6 +371,15 @@ build_datawatch_tp(unsigned char* buf, CORE_ADDR memory_check_function, int mem_
       buf[i++] = 0x08; 
     }
   }
+  /* rsp += 0x80 */
+  buf[i++] = 0x48; 
+  buf[i++] = 0x81;
+  buf[i++] = 0xc4; 
+  buf[i++] = 0x80; 
+  buf[i++] = 0x00; 
+  buf[i++] = 0x00; 
+  buf[i++] = 0x00; 
+
   buf[i++] = 0x9d; /* popfq */
 
 
@@ -448,7 +522,7 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
       else
       {
         upper_bound = it->first;
-        lower_bound = --it->second;
+        lower_bound = (--it)->second;
         if(lower_bound > upper_bound)
         {
           lower_bound = page_address;
@@ -456,6 +530,8 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
       }
       if(lower_bound<=tp_address && upper_bound>tp_address+ tp_size)
       {
+        // fprintf_filtered(gdb_stdlog,"3 inserted tp at address 0x%lx\n", tp_address);
+        // fprintf_filtered(gdb_stdlog,"lower 0x%lx upper 0x%lx\n", lower_bound, upper_bound);
         tp_map->insert({tp_address, tp_address+tp_size});
         return tp_address;
       }
@@ -465,6 +541,7 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
     if(can_mmap(gdbarch, tp_address,tp_size))
     {
       page_map.insert({page_address, new std::map<CORE_ADDR, CORE_ADDR>()});
+      // fprintf_filtered(gdb_stdlog,"4 inserted tp at address 0x%lx\n", tp_address);
       page_map[page_address]->insert({tp_address, tp_address + tp_size});
       return tp_address;
     }
@@ -482,6 +559,7 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
            can_mmap(gdbarch, tp_address,1))
         {
           page_map.insert({page_address, new std::map<CORE_ADDR, CORE_ADDR>()});
+          // fprintf_filtered(gdb_stdlog,"5 inserted tp at address 0x%lx\n", tp_address);
           page_map[page_address]->insert({tp_address, page_address + page_size});
           return tp_address;
         }
@@ -507,6 +585,7 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
         }
         if (pos_policy != JUST_ASKING)
         {
+          // fprintf_filtered(gdb_stdlog,"1 inserted tp at address 0x%lx\n", lower_bound);
           page_map[page_address]->insert({lower_bound, lower_bound + tp_size});
         }
         return lower_bound;
@@ -516,10 +595,12 @@ CORE_ADDR try_put_trampoline(gdbarch *gdbarch, CORE_ADDR tp_address, int pos_pol
         page_map.insert({page_address, new std::map<CORE_ADDR, CORE_ADDR>()});
         if (pos_policy != JUST_ASKING)
         {
+          // fprintf_filtered(gdb_stdlog,"2 inserted tp at address 0x%lx\n", page_address);
           page_map[page_address]->insert({page_address, page_address + tp_size});
         }
         else
         {
+          // fprintf_filtered(gdb_stdlog,"Did not insert tp at address 0x%lx\n", page_address);
           page_map[page_address]->insert({page_address-1, page_address});
         }
         return page_address;
@@ -684,7 +765,9 @@ build_compile_trampoline (struct gdbarch *gdbarch,
     struct symbol *func_sym = module->func_sym;
     CORE_ADDR func_addr = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (func_sym));
     CORE_ADDR regs_addr = module->regs_addr;
-    trampoline_size = fill_trampoline (trampoline_instr, func_addr, regs_addr);
+    struct regs_store_data *regs_store_info = module->regs_store_info;
+    int reg_store_len = module->regs_store_len;
+    trampoline_size = fill_trampoline (trampoline_instr, func_addr, regs_addr, regs_store_info, reg_store_len);
   }
   else
   {
@@ -726,31 +809,31 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   if((mem_access_regs>>29) & 1) /* register access is read only */
   {
     int reg = mem_access_regs&0xF;
-    int offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
+    int offset = -8*(2+reg) -0x80; /* 1 for the flags + 1 because rsp points after the end of the stack ,0x80 because of the red zone */
     gdb_byte insn[8] = {0x48,0x8b,0x0,0x24,0x0,0x0,0x0,0x0};
     /* We need a 32 bit disp. Only necessary if offset <= -128 (reg>=14) */
     if(reg>=8) 
     {
       insn[0]=0x4c;
-      insn[2]=dest_reg[reg%8]+0x40;
-      memcpy(insn+4, &offset, 4);
-      target_write_memory(trampoline_end, insn,8);
-      trampoline_end += 8;
     }
-    else
-    {
-      insn[2]=dest_reg[reg%8];
-      insn[4]=(gdb_byte) offset;
-      target_write_memory(trampoline_end, insn,5);
-      trampoline_end += 5;
-    }
-    if((mem_access_regs & 0x8000000)>>(27) == 1)
+    insn[2]=dest_reg[reg%8]+0x40;
+    memcpy(insn+4, &offset, 4);
+    target_write_memory(trampoline_end, insn,8);
+    trampoline_end += 8;
+    // }
+    // else
+    // {
+    //   insn[2]=dest_reg[reg%8];
+    //   insn[4]=(gdb_byte) offset;
+    //   target_write_memory(trampoline_end, insn,5);
+    //   trampoline_end += 5;
+    // }
+    if((mem_access_regs & 0x8000000)>>(30) == 1)
     {
       /* restore the idx register too */
-      int reg = (mem_access_regs&0xF0)>>4;
-      printf("Reg 2 %d mem_access 0x%x \n", reg, mem_access_regs);
-      int offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
-      gdb_byte insn[8] = {0x48,0x8b,0x0,0x24,0x0,0x0,0x0,0x0};
+      reg = (mem_access_regs&0xF0)>>4;
+      insn[0]=0x48;
+      offset = -8*(2+reg); /* 1 for the flags + 1 because rsp points after the end of the stack */
       if(reg>=8) /* We need a 32 bit disp. Only valid if offset <= -128 (reg>=14) */
       {
         insn[0]=0x4c;
@@ -875,6 +958,7 @@ patch_code (const char *location, const char *code, int mem_access_regs)
     // gdb::unlinker object_remover (fnames.object_file ());
     // gdb::unlinker source_remover (fnames.source_file ());
     /* Load compiled code into memory.  */
+    scope = COMPILE_I_PATCH_SCOPE;
     compile_module = compile_object_load (fnames, scope, NULL);
   }
   else

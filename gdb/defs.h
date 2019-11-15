@@ -80,6 +80,9 @@ enum compile_i_scope_types
        name already specifies its address.  See get_out_value_type.  */
     COMPILE_I_PRINT_ADDRESS_SCOPE,
     COMPILE_I_PRINT_VALUE_SCOPE,
+    
+    /* For the patch command.  */
+    COMPILE_I_PATCH_SCOPE,
   };
 
 

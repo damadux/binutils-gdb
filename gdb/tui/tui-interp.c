@@ -322,8 +322,7 @@ _initialize_tui_interp (void)
     }
 
   /* If changing this, remember to update cli-interp.c as well.  */
-  if(0)
-    gdb::observers::normal_stop.attach (tui_on_normal_stop);
+  gdb::observers::normal_stop.attach (tui_on_normal_stop);
   gdb::observers::signal_received.attach (tui_on_signal_received);
   gdb::observers::end_stepping_range.attach (tui_on_end_stepping_range);
   gdb::observers::signal_exited.attach (tui_on_signal_exited);

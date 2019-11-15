@@ -59,6 +59,12 @@ struct compile_module
      require any.  */
   CORE_ADDR regs_addr;
 
+  /* Holds the instructions needed to store the registers for the patch
+     command. NULL for the compile command.  */
+  struct regs_store_data *regs_store_info;
+
+  int regs_store_len;
+  
   /* The "scope" of this compilation.  */
   enum compile_i_scope_types scope;
 

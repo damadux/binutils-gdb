@@ -208,6 +208,12 @@ private:
   std::string m_object_file;
 };
 
+struct regs_store_data
+{
+  int regnum;
+  ULONGEST reg_offset;
+};
+
 /* for use in compile-patch.  */
 compile_file_names compile_to_object(struct command_line *cmd,
                                      const char *cmd_string,

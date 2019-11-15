@@ -525,10 +525,11 @@ get_regs_type (struct symbol *func_sym, struct objfile *objfile)
 }
 
 /* Store all inferior registers required by REGS_TYPE to inferior memory
-   starting at inferior address REGS_BASE.  */
+   starting at inferior address REGS_BASE. If store_now is false, regs_base is a buffer
+   to store the instructions needed to store the registers.  */
 
 static void
-store_regs (struct type *regs_type, CORE_ADDR regs_base)
+store_regs (struct type *regs_type, CORE_ADDR regs_base, regs_store_data *regnums)
 {
   struct gdbarch *gdbarch = target_gdbarch ();
   int fieldno;
@@ -545,7 +546,11 @@ store_regs (struct type *regs_type, CORE_ADDR regs_base)
       int regnum;
       struct value *regval;
       CORE_ADDR inferior_addr;
-
+      /* Initialize regnums content.  */
+      if(regnums!=NULL)
+      {
+        regnums[fieldno]={-1,0};
+      }
       if (strcmp (reg_name, COMPILE_I_SIMPLE_REGISTER_DUMMY) == 0)
 	continue;
 
@@ -560,18 +565,26 @@ store_regs (struct type *regs_type, CORE_ADDR regs_base)
 	       TYPE_CODE (reg_type));
 
       regnum = compile_register_name_demangle (gdbarch, reg_name);
+      if(regnums == NULL)
+      {
+        regval = value_from_register (reg_type, regnum, get_current_frame ());
+        if (value_optimized_out (regval))
+    error (_("Register \"%s\" is optimized out."), reg_name);
+        if (!value_entirely_available (regval))
+    error (_("Register \"%s\" is not available."), reg_name);
 
-      regval = value_from_register (reg_type, regnum, get_current_frame ());
-      if (value_optimized_out (regval))
-	error (_("Register \"%s\" is optimized out."), reg_name);
-      if (!value_entirely_available (regval))
-	error (_("Register \"%s\" is not available."), reg_name);
-
-      inferior_addr = regs_base + reg_offset;
-      if (0 != target_write_memory (inferior_addr, value_contents (regval),
-				    reg_size))
-	error (_("Cannot write register \"%s\" to inferior memory at %s."),
-	       reg_name, paddress (gdbarch, inferior_addr));
+        inferior_addr = regs_base + reg_offset;
+        if (0 != target_write_memory (inferior_addr, value_contents (regval),
+              reg_size))
+    error (_("Cannot write register \"%s\" to inferior memory at %s."),
+          reg_name, paddress (gdbarch, inferior_addr));
+      }
+      else
+      {
+        printf("Fieldno %d \n", fieldno);
+        regnums[fieldno]={regnum, reg_offset};
+      }
+      
     }
 }
 
@@ -587,6 +600,7 @@ compile_object_load (const compile_file_names &file_names,
 {
   struct setup_sections_data setup_sections_data;
   CORE_ADDR regs_addr, out_value_addr = 0;
+  struct regs_store_data *regs_store_info = NULL;
   struct symbol *func_sym;
   struct type *func_type;
   struct bound_minimal_symbol bmsym;
@@ -653,6 +667,7 @@ compile_object_load (const compile_file_names &file_names,
 
   switch (scope)
     {
+    case COMPILE_I_PATCH_SCOPE:
     case COMPILE_I_SIMPLE_SCOPE:
       expect_parameters = 1;
       expect_return_type = builtin_type (target_gdbarch ())->builtin_void;
@@ -764,7 +779,16 @@ compile_object_load (const compile_file_names &file_names,
 			    paddress (target_gdbarch (),
 				      TYPE_LENGTH (regs_type)),
 			    paddress (target_gdbarch (), regs_addr));
-      store_regs (regs_type, regs_addr);
+      /* In the case of COMPILE_I_PATCH_SCOPE, we want to delay the store 
+         and only prepare the store instructions. */
+      bool store_now = (scope != COMPILE_I_PATCH_SCOPE);
+      if(!store_now)
+      {
+        regs_store_info = (regs_store_data *) malloc(TYPE_LENGTH (regs_type) * sizeof(regs_store_data));
+      }
+      printf("TYPE LENGTH %lu \n", TYPE_LENGTH (regs_type));
+      store_regs (regs_type, regs_addr, regs_store_info);
+      
     }
 
   if (scope == COMPILE_I_PRINT_ADDRESS_SCOPE
@@ -794,6 +818,8 @@ compile_object_load (const compile_file_names &file_names,
   retval->source_file = xstrdup (file_names.source_file ());
   retval->func_sym = func_sym;
   retval->regs_addr = regs_addr;
+  retval->regs_store_info = regs_store_info;
+  retval->regs_store_len = TYPE_LENGTH (regs_type);
   retval->scope = scope;
   retval->scope_data = scope_data;
   retval->out_value_type = out_value_type;
