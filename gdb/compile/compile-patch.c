@@ -46,6 +46,11 @@ mov_reg(unsigned char *trampoline_instr, struct regs_store_data reg_store_info)
   int correct[16]={0,3,1,2,6,7,5,4,8,9,10,11,12,13,14,15};
   ULONGEST offset = reg_store_info.reg_offset;
   int regnum = reg_store_info.regnum;
+  if(regnum == -1)
+  {
+    // Dummy register
+    return 0;
+  }
   if(regnum>15 || regnum < 0)
   {
     fprintf_filtered(gdb_stdlog, "Expected register number < 16\n");

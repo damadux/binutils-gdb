@@ -525,8 +525,8 @@ get_regs_type (struct symbol *func_sym, struct objfile *objfile)
 }
 
 /* Store all inferior registers required by REGS_TYPE to inferior memory
-   starting at inferior address REGS_BASE. If store_now is false, regs_base is a buffer
-   to store the instructions needed to store the registers.  */
+   starting at inferior address REGS_BASE. If regnums is not NULL, it is a buffer
+   to put the instructions needed to store the registers.  */
 
 static void
 store_regs (struct type *regs_type, CORE_ADDR regs_base, regs_store_data *regnums)
@@ -581,7 +581,6 @@ store_regs (struct type *regs_type, CORE_ADDR regs_base, regs_store_data *regnum
       }
       else
       {
-        printf("Fieldno %d \n", fieldno);
         regnums[fieldno]={regnum, reg_offset};
       }
       
@@ -784,9 +783,9 @@ compile_object_load (const compile_file_names &file_names,
       bool store_now = (scope != COMPILE_I_PATCH_SCOPE);
       if(!store_now)
       {
-        regs_store_info = (regs_store_data *) malloc(TYPE_LENGTH (regs_type) * sizeof(regs_store_data));
+        regs_store_info = (regs_store_data *) malloc(TYPE_NFIELDS (regs_type) * sizeof(regs_store_data));
       }
-      printf("TYPE LENGTH %lu \n", TYPE_LENGTH (regs_type));
+      // printf("TYPE LENGTH %lu \n", TYPE_LENGTH (regs_type));
       store_regs (regs_type, regs_addr, regs_store_info);
       
     }
@@ -819,7 +818,7 @@ compile_object_load (const compile_file_names &file_names,
   retval->func_sym = func_sym;
   retval->regs_addr = regs_addr;
   retval->regs_store_info = regs_store_info;
-  retval->regs_store_len = TYPE_LENGTH (regs_type);
+  retval->regs_store_len = TYPE_NFIELDS (regs_type);
   retval->scope = scope;
   retval->scope_data = scope_data;
   retval->out_value_type = out_value_type;
