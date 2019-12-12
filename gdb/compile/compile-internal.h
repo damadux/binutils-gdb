@@ -151,6 +151,13 @@ protected:
   htab_up m_symbol_err_map;
 };
 
+/* Stores data needed to save registers for the patch command.  */
+struct regs_store_data
+{
+  int regnum;
+  ULONGEST reg_offset;
+};
+
 /* Define header and footers for different scopes.  */
 
 /* A simple scope just declares a function named "_gdb_expr", takes no

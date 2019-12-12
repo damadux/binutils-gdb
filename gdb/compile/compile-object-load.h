@@ -59,6 +59,13 @@ struct compile_module
      require any.  */
   CORE_ADDR regs_addr;
 
+  /* Offsets needed to store the registers for the patch
+     command. NULL for the compile command.  */
+  struct regs_store_data *deferred_regs_store;
+
+  /* The number of registers to be stored.  */
+  int regs_store_num;
+
   /* The "scope" of this compilation.  */
   enum compile_i_scope_types scope;
 
