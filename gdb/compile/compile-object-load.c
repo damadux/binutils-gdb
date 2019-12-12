@@ -528,7 +528,7 @@ get_regs_type (struct symbol *func_sym, struct objfile *objfile)
    starting at inferior address REGS_BASE.  */
 
 static void
-store_regs (struct type *regs_type, CORE_ADDR regs_base)
+store_regs (struct type *regs_type, CORE_ADDR regs_base, regs_store_data *deferred_store)
 {
   struct gdbarch *gdbarch = target_gdbarch ();
   int fieldno;
@@ -546,6 +546,12 @@ store_regs (struct type *regs_type, CORE_ADDR regs_base)
       struct value *regval;
       CORE_ADDR inferior_addr;
 
+      /* Initialize deferred registers storage data.  */
+      if (deferred_store != NULL)
+	{
+	  deferred_store[fieldno] = {-1, 0};
+	}
+
       if (strcmp (reg_name, COMPILE_I_SIMPLE_REGISTER_DUMMY) == 0)
 	continue;
 
@@ -561,17 +567,27 @@ store_regs (struct type *regs_type, CORE_ADDR regs_base)
 
       regnum = compile_register_name_demangle (gdbarch, reg_name);
 
-      regval = value_from_register (reg_type, regnum, get_current_frame ());
-      if (value_optimized_out (regval))
-	error (_("Register \"%s\" is optimized out."), reg_name);
-      if (!value_entirely_available (regval))
-	error (_("Register \"%s\" is not available."), reg_name);
+      /* If deferred store is null, registers are loaded instantly.
+	 Otherwise we store the offset.  */
+      if (deferred_store == NULL)
+	{
+	  regval = value_from_register (reg_type, regnum, get_current_frame ());
+	  if (value_optimized_out (regval))
+	    error (_ ("Register \"%s\" is optimized out."), reg_name);
+	  if (!value_entirely_available (regval))
+	    error (_ ("Register \"%s\" is not available."), reg_name);
 
-      inferior_addr = regs_base + reg_offset;
-      if (0 != target_write_memory (inferior_addr, value_contents (regval),
-				    reg_size))
-	error (_("Cannot write register \"%s\" to inferior memory at %s."),
-	       reg_name, paddress (gdbarch, inferior_addr));
+	  inferior_addr = regs_base + reg_offset;
+	  if (0
+	      != target_write_memory (inferior_addr, value_contents (regval),
+				      reg_size))
+	    error (_ ("Cannot write register \"%s\" to inferior memory at %s."),
+		   reg_name, paddress (gdbarch, inferior_addr));
+	}
+      else
+	{
+	  deferred_store[fieldno] = {regnum, reg_offset};
+	}
     }
 }
 
@@ -599,6 +615,7 @@ compile_object_load (const compile_file_names &file_names,
   struct objfile *objfile;
   int expect_parameters;
   struct type *expect_return_type;
+  struct regs_store_data *deferred_regs_store = NULL;
 
   gdb::unique_xmalloc_ptr<char> filename
     (tilde_expand (file_names.object_file ()));
@@ -654,6 +671,7 @@ compile_object_load (const compile_file_names &file_names,
   switch (scope)
     {
     case COMPILE_I_SIMPLE_SCOPE:
+    case COMPILE_I_PATCH_SCOPE:
       expect_parameters = 1;
       expect_return_type = builtin_type (target_gdbarch ())->builtin_void;
       break;
@@ -765,7 +783,11 @@ compile_object_load (const compile_file_names &file_names,
 			    paddress (target_gdbarch (),
 				      TYPE_LENGTH (regs_type)),
 			    paddress (target_gdbarch (), regs_addr));
-      store_regs (regs_type, regs_addr);
+      if (scope == COMPILE_I_PATCH_SCOPE)
+      {
+        deferred_regs_store = new regs_store_data[TYPE_NFIELDS(regs_type)];
+      }
+      store_regs (regs_type, regs_addr, deferred_regs_store);
     }
 
   if (scope == COMPILE_I_PRINT_ADDRESS_SCOPE
@@ -795,6 +817,8 @@ compile_object_load (const compile_file_names &file_names,
   retval->source_file = xstrdup (file_names.source_file ());
   retval->func_sym = func_sym;
   retval->regs_addr = regs_addr;
+  retval->deferred_regs_store = deferred_regs_store;
+  retval->regs_store_num = TYPE_NFIELDS (regs_type);
   retval->scope = scope;
   retval->scope_data = scope_data;
   retval->out_value_type = out_value_type;

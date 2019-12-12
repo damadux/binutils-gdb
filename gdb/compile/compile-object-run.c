@@ -52,6 +52,9 @@ struct do_module_cleanup
 
   /* objfile_name of our objfile.  */
   char objfile_name_string[1];
+
+  /* Deferred store registers.  */
+  regs_store_data *deferred_regs_store;
 };
 
 /* Cleanup everything after the inferior function dummy frame gets
@@ -99,6 +102,9 @@ do_module_cleanup (void *arg, int registers_valid)
   xfree (data->source_file);
 
   delete data->munmap_list_head;
+
+  /* Delete the deferred registers storage data.  */
+  delete[] data->deferred_regs_store;
 
   /* Delete the .o file.  */
   unlink (data->objfile_name_string);

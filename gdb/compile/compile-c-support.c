@@ -320,6 +320,7 @@ struct c_add_code_header
     switch (type)
       {
       case COMPILE_I_SIMPLE_SCOPE:
+      case COMPILE_I_PATCH_SCOPE:
 	fputs_unfiltered ("void "
 			  GCC_FE_WRAPPER_FUNCTION
 			  " (struct "
@@ -367,6 +368,7 @@ struct c_add_code_footer
     switch (type)
       {
       case COMPILE_I_SIMPLE_SCOPE:
+      case COMPILE_I_PATCH_SCOPE:
       case COMPILE_I_PRINT_ADDRESS_SCOPE:
       case COMPILE_I_PRINT_VALUE_SCOPE:
 	fputs_unfiltered ("}\n", buf);
@@ -444,6 +446,7 @@ struct cplus_add_code_header
   switch (type)
     {
     case COMPILE_I_SIMPLE_SCOPE:
+    case COMPILE_I_PATCH_SCOPE:
       fputs_unfiltered ("void "
 			GCC_FE_WRAPPER_FUNCTION
 			" (struct "
@@ -601,6 +604,7 @@ public:
     AddCodeHeaderPolicy::add_code_header (m_instance->scope (), &buf);
 
     if (m_instance->scope () == COMPILE_I_SIMPLE_SCOPE
+	|| m_instance->scope () == COMPILE_I_PATCH_SCOPE
 	|| m_instance->scope () == COMPILE_I_PRINT_ADDRESS_SCOPE
 	|| m_instance->scope () == COMPILE_I_PRINT_VALUE_SCOPE)
       {
@@ -630,6 +634,7 @@ public:
       buf.puts ("}\n");
 
     if (m_instance->scope () == COMPILE_I_SIMPLE_SCOPE
+  || m_instance->scope () == COMPILE_I_PATCH_SCOPE
 	|| m_instance->scope () == COMPILE_I_PRINT_ADDRESS_SCOPE
 	|| m_instance->scope () == COMPILE_I_PRINT_VALUE_SCOPE)
       PopUserExpressionPolicy::pop_user_expression (&buf);
