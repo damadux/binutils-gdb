@@ -22,13 +22,14 @@ static CORE_ADDR
 find_return_address (struct gdbarch *gdbarch, CORE_ADDR insn_addr,
                      bool verbose)
 {
-  /* In this version, we only check if we have enough room to put a jump.  */
-  if (gdb_insn_length (gdbarch, insn_addr) < gdbarch_jmp_insn_length(gdbarch,0))
-    {
-      return 0;
-    }
+  /* In this version, we assume that we can always put a jump to a trampoline
+      that returns at the next instruction after a jump instruction.  */
   CORE_ADDR return_address
-      = insn_addr + gdb_insn_length (gdbarch, insn_addr);
+          = *insn_addr + gdb_insn_length (gdbarch, *insn_addr);
+  while (return_address < *insn_addr + gdbarch_jmp_insn_length(gdbarch,0))
+  {
+    return_address+=gdb_insn_length (gdbarch, return_address);
+  }
   return return_address;
 }
 
