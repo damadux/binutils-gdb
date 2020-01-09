@@ -49,7 +49,7 @@
 #include "gdbsupport/byte-vector.h"
 #include "osabi.h"
 #include "x86-tdep.h"
-
+#include "compile/compile-object-load.h"
 /* Note that the AMD64 architecture was previously known as x86-64.
    The latter is (forever) engraved into the canonical system name as
    returned by config.guess, and used as the name for the AMD64 port
@@ -3118,6 +3118,192 @@ amd64_in_indirect_branch_thunk (struct gdbarch *gdbarch, CORE_ADDR pc)
 				       AMD64_RAX_REGNUM,
 				       AMD64_RIP_REGNUM);
 }
+/* Fills the trampoline buffer with instructions to store the register referenced by reg_to_store.  */
+static int 
+amd64_store_reg(unsigned char *trampoline_instr, struct regs_store_data reg_to_store)
+{
+  /* The numbering of registers needs to be adjusted to simplify machine instructions production.  */
+  int correct[16]={0,3,1,2,6,7,5,4,8,9,10,11,12,13,14,15};
+  ULONGEST offset = reg_to_store.reg_offset;
+  int regnum = reg_to_store.regnum;
+  if(regnum == -1)
+  {
+    // Dummy register
+    return 0;
+  }
+  if(regnum>15 || regnum < 0)
+  {
+    fprintf_filtered(gdb_stdlog, "Expected register number < 16\n");
+    fprintf_filtered(gdb_stdlog, "Got number %d \n", regnum);
+    return 0;
+  }
+  regnum = correct[regnum];
+
+  int i = 0;
+  /* Move register value to *rdi + offset */
+  if(regnum<8)
+    trampoline_instr[i++] = '\x48';
+  else
+    trampoline_instr[i++] = '\x4c';
+  trampoline_instr[i++] = '\x89';
+  trampoline_instr[i++] = '\x87'+'\x8'*(regnum%8);
+  int32_t offset32 = (int32_t) offset;
+  memcpy(trampoline_instr+i, &offset32, 4);
+  i+=4;
+  return i;
+}
+
+/* This fills the trampoline_instr buffer with instructions to save
+   and restore the registers, but does not relocate the replaced 
+   instruction. It returns the length of the trampoline.  */
+static int
+amd64_fill_trampoline_buffer (unsigned char *trampoline_instr, 
+                       struct compile_module *module)
+{
+  int i = 0;
+  CORE_ADDR called = BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (module->func_sym));
+  CORE_ADDR regs_struct_addr = module->regs_addr;
+  struct regs_store_data *regs_to_store = module->deferred_regs_store;
+  int regs_store_num = module->regs_store_num;
+  /* save registers */
+  /* Flags may cause a bug when stepped over.  */
+  trampoline_instr[i++] = 0x9c; /* pushfq */ /* FIXME: can be overwritten because it is in the red zone */ 
+  /* or */
+  /* Store rax at rsp -0x80 */
+  /* Move flags to ah */
+  /* add -0x88 to rsp */
+  /* push regs  */
+  /* pop every reg */
+  /* add 0x88 to rsp */
+  /* mov ah to flags */
+
+  /* rsp -= 0x80 for the red zone */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x83; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x80; 
+  
+  trampoline_instr[i++] = 0x54; /* push %rsp */
+  trampoline_instr[i++] = 0x55; /* push %rbp */
+  trampoline_instr[i++] = 0x57; /* push %rdi */
+  trampoline_instr[i++] = 0x56; /* push %rsi */
+  trampoline_instr[i++] = 0x52; /* push %rdx */
+  trampoline_instr[i++] = 0x51; /* push %rcx */
+  trampoline_instr[i++] = 0x53; /* push %rbx */
+  trampoline_instr[i++] = 0x50; /* push %rax */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x57; /* push %r15 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x56; /* push %r14 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x55; /* push %r13 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x54; /* push %r12 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x53; /* push %r11 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x52; /* push %r10 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x51; /* push %r9 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x50; /* push %r8 */
+
+
+
+  /* Provide gdb_expr () arguments.  */
+  trampoline_instr[i++] = 0x48; /* movabs <arg>,%rdi */
+  trampoline_instr[i++] = 0xbf;
+  memcpy (trampoline_instr + i, &regs_struct_addr, 8);
+  i += 8;
+  /* Store required register values into *rdi.  */
+  for(int j =0; j < regs_store_num; j++)
+  {
+    i += amd64_store_reg(trampoline_instr+i, regs_to_store[j]);
+  }
+
+  /* call gdb_expr () */
+  trampoline_instr[i++] = 0x48; /* movabs <called>,%rax */
+  trampoline_instr[i++] = 0xb8;
+  memcpy (trampoline_instr + i, &called, 8);
+  i += 8;
+  trampoline_instr[i++] = 0xff; /* callq *%rax */
+  trampoline_instr[i++] = 0xd0;
+
+  /* restore registers */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x58; /* pop %r8 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x59; /* pop %r9 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5a; /* pop %r10 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5b; /* pop %r11 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5c; /* pop %r12 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5d; /* pop %r13 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5e; /* pop %r14 */
+  trampoline_instr[i++] = 0x41;
+  trampoline_instr[i++] = 0x5f; /* pop %r15 */
+  trampoline_instr[i++] = 0x58; /* pop %rax */
+  trampoline_instr[i++] = 0x5b; /* pop %rbx */
+  trampoline_instr[i++] = 0x59; /* pop %rcx */
+  trampoline_instr[i++] = 0x5a; /* pop %rdx */
+  trampoline_instr[i++] = 0x5e; /* pop %rsi */
+  trampoline_instr[i++] = 0x5f; /* pop %rdi */
+  trampoline_instr[i++] = 0x5d; /* pop %rbp */
+  trampoline_instr[i++] = 0x5c; /* pop %rsp */
+
+  /* rsp += 0x80 for the red zone.  */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x81; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x80; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x00; 
+
+  trampoline_instr[i++] = 0x9d; /* popfq */
+
+  return i;
+}
+
+/* Inserts a jump from ''from'' to ''to''. If fill not is set to 1,
+   this functions sets the bytes after the jump to NOP to clarify the code.  */
+bool
+amd64_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to)
+{
+  int64_t long_jump_offset = to - (from + 5);
+  if (long_jump_offset > INT_MAX || long_jump_offset < INT_MIN)
+    {
+      fprintf_filtered (
+          gdb_stderr,
+          "E.Jump pad too far from instruction for jump (offset 0x%" PRIx64
+          " > int32). \n",
+          long_jump_offset);
+      return 0;
+    }
+
+  int32_t jump_offset = (int32_t)long_jump_offset;
+  fprintf_filtered (gdb_stdlog, "Patched in a jump from 0x%lx to 0x%lx \n",
+                    from, to);
+  gdb_byte jump_insn[] = { 0xe9, 0, 0, 0, 0 };
+  memcpy (jump_insn + 1, &jump_offset, 4);
+
+  /* Add nops to clarify the code if the instruction was too long. 
+     These should never be hit.  */
+  // if (gdb_insn_length (gdbarch, from) > 5)
+  //   {
+  //     const gdb_byte NOP_buffer[] = { 0x90, 0x90, 0x90, 0x90, 0x90,
+  //                                          0x90, 0x90, 0x90, 0x90, 0x90 };
+  //     target_write_memory (from + 5, NOP_buffer,
+  //                          gdb_insn_length (gdbarch, from) - 5);
+  //   }
+
+  target_write_memory (from, jump_insn, 5);
+  return 1;
+}
 
 void
 amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
@@ -3223,6 +3409,11 @@ amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
   set_gdbarch_pc_regnum (gdbarch, AMD64_RIP_REGNUM); /* %rip */
   set_gdbarch_ps_regnum (gdbarch, AMD64_EFLAGS_REGNUM); /* %eflags */
   set_gdbarch_fp0_regnum (gdbarch, AMD64_ST0_REGNUM); /* %st(0) */
+
+  /* Functions necessary for the patch command.  */
+  set_gdbarch_fill_trampoline_buffer(gdbarch, amd64_fill_trampoline_buffer);
+  set_gdbarch_patch_jump(gdbarch, amd64_patch_jump);
+  set_gdbarch_jmp_insn_length(gdbarch);
 
   /* The "default" register numbering scheme for AMD64 is referred to
      as the "DWARF Register Number Mapping" in the System V psABI.
