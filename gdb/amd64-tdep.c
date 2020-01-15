@@ -1835,6 +1835,8 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
   gdb_byte *buf = (gdb_byte *) xmalloc (len + fixup_sentinel_space);
   struct amd64_insn insn_details;
   int offset = 0;
+  int jmp_arg_len = 4;
+  int opcode_len_diff = 0;
   LONGEST rel32, newrel;
   gdb_byte *insn;
   int insn_length;
@@ -1924,19 +1926,44 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
   offset = rip_relative_offset (&insn_details);
   if (!offset)
     {
+      /* Replace short jumps by long ones */
+      if (insn[0] == 0xeb)
+	{
+	  jmp_arg_len = 1;
+	  insn[0] = 0xe9;
+	  insn_length = 5;
+	}
       /* Adjust jumps with 32-bit relative addresses.  Calls are
 	 already handled above.  */
       if (insn[0] == 0xe9)
 	offset = 1;
+
+      /* Replace short conditional jumps by long ones */
+      if ((insn[0] & 0xf0) == 0x70)
+	{
+	  jmp_arg_len = 1;
+	  insn[2] = insn[1];
+	  insn[1] = insn[0] + 0x10;
+	  insn[0] = 0x0f;
+	  insn_length = 6;
+	  opcode_len_diff = 1;
+	}
       /* Adjust conditional jumps.  */
-      else if (insn[0] == 0x0f && (insn[1] & 0xf0) == 0x80)
+      if (insn[0] == 0x0f && (insn[1] & 0xf0) == 0x80)
 	offset = 2;
     }
 
   if (offset)
     {
-      rel32 = extract_signed_integer (insn_details.raw_insn + offset, 4, byte_order);
-      newrel = (oldloc - *to) + rel32;
+      rel32 = extract_signed_integer (insn_details.raw_insn + offset, jmp_arg_len, byte_order);
+      /* The length of the opcode and offset of the jump may be different. */
+      newrel = (oldloc - *to) + rel32 - (4 + opcode_len_diff - jmp_arg_len);
+      if (newrel < INT32_MIN || newrel > INT32_MAX)
+	{
+	  /* Overflowing the 32 bit jump */
+	  if (debug_displaced)
+	    error (_ ("Overflowing of int32 for jump instruction relocation"));
+	}
       store_signed_integer (insn_details.raw_insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog,
