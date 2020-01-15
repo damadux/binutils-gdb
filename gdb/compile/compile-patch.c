@@ -11,11 +11,14 @@
 #include "compile.h"
 #include "compile-object-load.h"
 #include "unistd.h"
+#include "patch.h"
 #include <map>
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
 #define PAGE_ADDRESS(addr) (addr/PAGE_SIZE)*PAGE_SIZE
 #define TP_MAX_SIZE 0x100
+
+static PatchMap registered_patches;
 
 /* Finds the return address for a trampoline placed at insn_addr.  */
 static CORE_ADDR
@@ -192,6 +195,10 @@ patch_code (const char *location, const char *code)
 
   if (return_address != 0)
   {
+    
+    Patch *new_patch = new Patch(compile_module, insn_addr);
+    new_patch->original_insn_length = gdb_insn_length(gdbarch, insn_addr);
+    target_read_memory(insn_addr, new_patch->original_insn, new_patch->original_insn_length);
     CORE_ADDR trampoline_address = build_compile_trampoline (
         gdbarch, compile_module, insn_addr, return_address);
     
@@ -210,6 +217,12 @@ patch_code (const char *location, const char *code)
 Make sure the instruction is long enough \n\
 to be replaced by a jump instruction.\n");
     }
+    else
+    {
+      /* Register patch.  */
+      registered_patches.insert(new_patch);
+    }
+    
   }
   /* Free unused memory */
   /* Some memory is left allocated in the inferior because
