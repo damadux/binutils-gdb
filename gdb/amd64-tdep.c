@@ -1936,7 +1936,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
       /* Adjust jumps with 32-bit relative addresses.  Calls are
 	 already handled above.  */
       if (insn[0] == 0xe9)
-	offset = 1;
+    offset = 1;
 
       /* Replace short jumps by long ones */
       if ((insn[0] & 0xf0) == 0x70)
@@ -1950,7 +1950,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
   }
       /* Adjust conditional jumps.  */
       if (insn[0] == 0x0f && (insn[1] & 0xf0) == 0x80)
-	offset = 2;
+    offset = 2;
     }
 
   if (offset)
@@ -3271,7 +3271,7 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
 
 /* Inserts a jump from ''from'' to ''to''. If fill not is set to 1,
    this functions sets the bytes after the jump to NOP to clarify the code.  */
-bool
+static bool
 amd64_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to)
 {
   int64_t long_jump_offset = to - (from + 5);

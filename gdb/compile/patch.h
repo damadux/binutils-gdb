@@ -21,6 +21,8 @@ public:
     int original_insn_length;
     gdb_byte original_insn[MAX_INSN_LEN];
 
+    int layout[5];
+
     bool active;
 
     struct compile_module *comp_module;
@@ -95,6 +97,7 @@ class PatchMap
                 overlapping_patches.insert(overlapping_patches.end(), 
                                 patches_to_append->begin(), 
                                 patches_to_append->end());
+                patch_iterator++;
             }
             return overlapping_patches;
         }

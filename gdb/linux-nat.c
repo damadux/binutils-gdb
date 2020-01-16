@@ -67,6 +67,8 @@
 #include "nat/linux-namespaces.h"
 #include "gdbsupport/fileio.h"
 #include "gdbsupport/scope-exit.h"
+#include "compile/compile-patch.h"
+
 
 /* This comment documents high-level logic of this file.
 
@@ -2933,7 +2935,15 @@ linux_nat_filter_event (int lwpid, int status)
   int event = linux_ptrace_get_extended_event (status);
 
   lp = find_lwp_pid (ptid_t (lwpid));
-
+  
+  // TMP : disable everything sigill related
+  // if (WSTOPSIG (status) == SIGILL)
+  //   {
+  //     struct regcache *regcache = get_thread_regcache (lp->ptid);
+  //     CORE_ADDR stop_pc = regcache_read_pc(regcache);
+  //     if (compile_patch_handle_sigill(stop_pc)==TRUE)
+  //       return NULL;
+  //   }
   /* Check for stop events reported by a process we didn't already
      know about - anything not already in our LWP list.
 

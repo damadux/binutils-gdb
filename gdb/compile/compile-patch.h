@@ -20,4 +20,9 @@ extern void compile_patch_file_command(const char *arg, int from_tty);
 
 extern void compile_patch_command(const char *arg, int from_tty);
 
+/* If the program stopped on a SIGILL, check if it was caused by a patch. 
+   If so, execute the original instruction.  */
+
+extern bool compile_patch_handle_sigill(CORE_ADDR stop_address);
+
 #endif /* COMPILE_PATCH_H */

@@ -59,6 +59,7 @@
 #include <elf.h>
 #endif
 #include "nat/linux-namespaces.h"
+#include "compile/compile-patch.h"
 
 #ifdef HAVE_PERSONALITY
 # include <sys/personality.h>
@@ -2501,7 +2502,12 @@ linux_low_filter_event (int lwpid, int wstat)
 	  return NULL;
 	}
     }
-
+  // TMP : disable everything sigill related
+  // if (WSTOPSIG (wstat) == SIGILL)
+  //   {
+  //     if (compile_patch_handle_sigill(get_pc (child))==TRUE)
+  //       return NULL;
+  //   }
   if (linux_wstatus_maybe_breakpoint (wstat))
     {
       if (save_stop_reason (child))
