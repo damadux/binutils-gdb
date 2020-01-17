@@ -25,6 +25,8 @@
 #include "inferior.h"
 #include "target.h"
 #include "gdbarch.h"
+#include "compile/patch.h"
+Patch *get_patch(CORE_ADDR addr);
 
 /* Insert a breakpoint on targets that don't have any better
    breakpoint support.  We read the contents of the target location
@@ -35,6 +37,7 @@
    long enough to save BREAKPOINT_LEN bytes (this is accomplished via
    BREAKPOINT_MAX).  */
 
+
 int
 default_memory_insert_breakpoint (struct gdbarch *gdbarch,
 				  struct bp_target_info *bp_tgt)
@@ -43,7 +46,7 @@ default_memory_insert_breakpoint (struct gdbarch *gdbarch,
   const unsigned char *bp;
   gdb_byte *readbuf;
   int bplen;
-  int val;
+  int val = 0;
 
   /* Determine appropriate breakpoint contents and size for this address.  */
   bp = gdbarch_sw_breakpoint_from_kind (gdbarch, bp_tgt->kind, &bplen);
@@ -51,7 +54,14 @@ default_memory_insert_breakpoint (struct gdbarch *gdbarch,
   /* Save the memory contents in the shadow_contents buffer and then
      write the breakpoint instruction.  */
   readbuf = (gdb_byte *) alloca (bplen);
-  val = target_read_memory (addr, readbuf, bplen);
+  if(bp_tgt->kind==1)
+    val = target_read_memory (addr, readbuf, bplen);
+  else
+  {
+    Patch *patch = get_patch(addr);
+    memcpy(readbuf,patch->original_insn + patch->ill_insn_offset + 1, bplen);
+    bp=&(patch->offset[patch->ill_insn_offset]);
+  }
   if (val == 0)
     {
       /* These must be set together, either before or after the shadow
@@ -67,7 +77,6 @@ default_memory_insert_breakpoint (struct gdbarch *gdbarch,
 
       val = target_write_raw_memory (addr, bp, bplen);
     }
-
   return val;
 }
 

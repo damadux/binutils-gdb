@@ -4,6 +4,8 @@
 
 #include <map>
 #include <list>
+#include "compile-object-load.h"
+#include "objfiles.h"
 
 #define MAX_INSN_LEN 15
 
@@ -20,7 +22,8 @@ public:
 
     int original_insn_length;
     gdb_byte original_insn[MAX_INSN_LEN];
-
+    gdb_byte offset[4];
+    int ill_insn_offset; 
     int layout[5];
 
     bool active;

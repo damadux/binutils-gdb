@@ -12,6 +12,7 @@
 #include "compile-object-load.h"
 #include "unistd.h"
 #include "patch.h"
+#include "location.h"
 #include <map>
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
@@ -27,39 +28,9 @@ static std::map<CORE_ADDR, page_map_t*> compile_memory_map;
 #define ILL_INSN_CNT 14
 #define MAX_INT8 127
 
-// TMP : disable everything sigill related
-// bool 
-// compile_patch_handle_sigill(CORE_ADDR stop_address)
-// {
-//   /* Check if the stop address overlaps a jump instruction from a patch.  */
-//   patch_list overlapping_patches  = 
-//           registered_patches.patches_overlapping(stop_address);
-//   if(overlapping_patches.empty())
-//   {
-//     return FALSE;
-//   }
-//   /* find the most recent active patch.  */
-//   auto it = overlapping_patches.begin();
-//   while(it!=overlapping_patches.end() && (*it)->active==FALSE)
-//   {
-//     it++;
-//   }
-//   if(it==overlapping_patches.end())
-//   {
-//     return FALSE;
-//   }
-
-//   Patch *patch = *it;
-//   /* Restore the original instruction.  */
-//   gdb_byte patch_buffer[MAX_INSN_LEN];
-//   int copy_length = patch->original_insn_length;
-//   target_read_memory(patch->patch_address, patch_buffer, copy_length);
-//   target_write_memory(patch->patch_address, patch->original_insn, copy_length);
-//   /* Step and restore the sigill (see breakpoints).  */
-  
-//   target_write_memory(patch->patch_address, patch_buffer, copy_length);
-//   return TRUE;
-// }
+/* Stores the breakpoint kind (i.e. 10+size) of patch breakpoints
+   at their address. */
+static std::map<CORE_ADDR,int> ill_insn_patches_kind;
 
 /* Finds the return address for a trampoline placed at insn_addr.  */
 static CORE_ADDR
@@ -207,7 +178,7 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
         auto upper_entry = page_map->upper_bound(candidate_address);
         if(upper_entry == page_map->end())
         {
-            if(1 || candidate_address + trampoline_size > page_addr + page_size)
+            if(candidate_address + trampoline_size > page_addr + page_size)
             {
               
               upper_bound = start_of_page(gdbarch, page_addr + page_size);
@@ -277,12 +248,27 @@ This is not supposed to happen."));
     page_map->insert({trampoline_address, trampoline_address + trampoline_size});
 }
 
+/* TMP Trashy */
+static event_location_up
+loc_from_pc(CORE_ADDR addr)
+{
+  char loc_string[50];
+  sprintf(loc_string, "*0x%lx", addr);
+  const char *loc_string2 = &loc_string[0];
+  return string_to_event_location(&loc_string2, current_language);
+}
+
+Patch *get_patch(CORE_ADDR addr)
+{
+  return *(registered_patches.patches_overlapping(addr).begin());
+}
+
 CORE_ADDR
 place_trampoline(gdbarch *gdbarch, Patch *patch, int trampoline_size)
 {
     CORE_ADDR patched_addr = patch->patch_address;
     int *layout = patch->layout;
-    // const gdb_byte illegal_insn[14] = {6, 7, 14, 22, 23, 30, 31, 39, 47, 55, 63, 96, 97, 98};
+    const gdb_byte illegal_insn[14] = {6, 7, 14, 22, 23, 30, 31, 39, 47, 55, 63, 96, 97, 98};
     int32_t offset;
     gdb_byte *offset_array= (gdb_byte *) &offset;
     /* The offset we can add while only modifying the first original instruction.  */
@@ -325,54 +311,94 @@ place_trampoline(gdbarch *gdbarch, Patch *patch, int trampoline_size)
     /* First we only modify the first and last instructions.  */
     /* 5th byte of the jump is not the start of an instruction.  */
     // TMP : disable everything sigill related
-//     if(layout[4]<=0)
-//     {
-//         for(int i = 0; i < ILL_INSN_CNT; i++)
-//         {
-//             offset_array[-layout[4]-1]=illegal_insn[i];
+    if(layout[4]<=0)
+    {   int ill_insn_pos = -layout[4];
+        patch->ill_insn_offset = ill_insn_pos-1;
+        for(int i = 0; i < ILL_INSN_CNT; i++)
+        {
+            
+            offset_array[ill_insn_pos-1]=illegal_insn[i];
 
-//             int32_t base_offset = next_available_address(gdbarch, base_address(gdbarch, patched_addr) - patched_addr - 5, trampoline_size, max_range);
-//             offset_array[3]=(gdb_byte)(base_offset>>(8*3));
-//             while((int8_t) offset_array[3]<MAX_INT8-1)
-//             {
-//                 candidate_address = patched_addr+offset+5;
-//                 if(VALID_ADDRESS(candidate_address))
-//                 {
-//                     /* Try with this offset.  */
-//                     CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
-//                     /* Check if next address is reachable modifying only the bytes from the first instruction.  */
-//                     if(next_address-(candidate_address)<max_range)
-//                     {
-//                         allocate_trampoline(gdbarch, next_address, trampoline_size);
-//                         return next_address;
-//                     }
-//                 }
-//                 offset_array[3]+=1;
-//             }
-//         }
-//     }
-//     else
-//     {
-//         for(int i = 0; i < ILL_INSN_CNT; i++)
-//         {
-//             offset_array[4] = illegal_insn[i];
-//             candidate_address = patched_addr + offset + 5;
-//             if(VALID_ADDRESS(candidate_address))
-//             {
-//                 /* Try with this offset.  */
-//                 CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
-//                 /* Check if next address is reachable modifying only the bytes from the first instruction.  */
-//                 if(next_address-(candidate_address)<max_range)
-//                 {
-//                     allocate_trampoline(gdbarch, next_address, trampoline_size);
-//                     return next_address;
-//                 }
-//             }
-//         }
-//     }
+            int32_t base_offset = next_available_address(gdbarch, base_address(gdbarch, patched_addr) - patched_addr - 5, trampoline_size, max_range);
+            offset_array[3]=(gdb_byte)(base_offset>>(8*3));
+            while((int8_t) offset_array[3]<MAX_INT8-1)
+            {
+                candidate_address = patched_addr+offset+5;
+                if(VALID_ADDRESS(candidate_address))
+                {
+                    /* Try with this offset.  */
+                    CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
+                    /* Check if next address is reachable modifying only the bytes from the first instruction.  */
+                    if(next_address-(candidate_address)<max_range)
+                    {
+                        ill_insn_patches_kind.insert(
+                          {patched_addr+ill_insn_pos, 10 + 5-ill_insn_pos});
+                        create_breakpoint(gdbarch,
+                              loc_from_pc(patched_addr+ill_insn_pos).get(),
+                              NULL, 0, "", 1,
+                              0, bp_breakpoint,
+                              1<<30,
+                               AUTO_BOOLEAN_TRUE,
+                               &bkpt_breakpoint_ops,
+                               0,
+                               1,
+                               1,
+                               0);
+                        allocate_trampoline(gdbarch, next_address, trampoline_size);
+                        return next_address;
+                    }
+                }
+                offset_array[3]+=1;
+            }
+        }
+    }
+    else
+    {
+        for(int i = 0; i < ILL_INSN_CNT; i++)
+        {
+            offset_array[4] = illegal_insn[i];
+            candidate_address = patched_addr + offset + 5;
+            if(VALID_ADDRESS(candidate_address))
+            {
+                /* Try with this offset.  */
+                CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
+                /* Check if next address is reachable modifying only the bytes from the first instruction.  */
+                if(next_address-(candidate_address)<max_range)
+                {
+                    /* allocate breakpoint of kind 11 at address candidate_address.  */
+                    ill_insn_patches_kind.insert({patched_addr + 4, 10 + 1});
+                    create_breakpoint(gdbarch, 
+                              loc_from_pc(patched_addr + 4).get(),
+                              NULL, 0, "", 1,
+                              0, bp_breakpoint,
+                              1<<30,
+                               AUTO_BOOLEAN_TRUE,
+                               &bkpt_breakpoint_ops,
+                               0,
+                               1,
+                               1,
+                               0);
+                    allocate_trampoline(gdbarch, next_address, trampoline_size);
+                    return next_address;
+                }
+            }
+        }
+    }
     return 0;
 }
 
+int
+patch_cmd_kind(int default_val, CORE_ADDR address)
+{
+  auto iterator = ill_insn_patches_kind.find(address);
+  if(iterator == ill_insn_patches_kind.end())
+    return default_val;
+  else
+  {
+    return iterator->second;
+  }
+    
+}
 /* Analyze the layout of instructions around patched_addr and determines
    where to place the trampoline accordingly
      layout[i] = n>0 : insn of length n starts at position i.
@@ -424,7 +450,6 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   {
     return 0;
   }
-  
   /* Build trampoline.  */
   gdb_byte trampoline_instr[TP_MAX_SIZE];
   int trampoline_size
@@ -443,12 +468,11 @@ build_compile_trampoline (struct gdbarch *gdbarch,
     insn_addr += gdb_insn_length(gdbarch, insn_addr);
   }
   
-  
   gdb_assert(trampoline_end - trampoline + gdbarch_jmp_insn_length(gdbarch, 0) < TP_MAX_SIZE);
   
   /* Jump back to return address.  */
   gdbarch_patch_jump(gdbarch, trampoline_end, return_address);
-  
+
   return trampoline;
 }
 
@@ -520,6 +544,8 @@ to be replaced by a jump instruction.\n");
   else
   {
     /* Register patch.  */
+    int offset = trampoline_address - insn_addr - 5;
+    memcpy(new_patch->offset, &offset, 4);
     registered_patches.insert(new_patch);
   }
 

@@ -28,19 +28,21 @@ struct type;
 struct gdbarch_info;
 struct dwarf2_frame_state;
 
+extern int patch_cmd_kind(int default_val, CORE_ADDR address);
+
 template <size_t bp_size, const gdb_byte *break_insn>
 struct bp_manipulation
 {
   static int
   kind_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr)
   {
-    return bp_size;
+    return patch_cmd_kind(bp_size, *pcptr);
   }
 
   static const gdb_byte *
   bp_from_kind (struct gdbarch *gdbarch, int kind, int *size)
   {
-    *size = kind;
+    *size = kind%10;
     return break_insn;
   }
 };
