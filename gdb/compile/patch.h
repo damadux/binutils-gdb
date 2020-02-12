@@ -24,6 +24,8 @@ public:
     gdb_byte original_insn[MAX_INSN_LEN];
     gdb_byte offset[4];
     int ill_insn_offset; 
+    /* i-th value is the offset at which we relocate the instruction starting on byte i. */
+    int relocated_insn_offset[5];
     int layout[5];
 
     bool active;

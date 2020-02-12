@@ -367,7 +367,7 @@ place_trampoline(gdbarch *gdbarch, Patch *patch, int trampoline_size)
                 {
                     /* allocate breakpoint of kind 11 at address candidate_address.  */
                     ill_insn_patches_kind.insert({patched_addr + 4, 10 + 1});
-                    create_breakpoint(gdbarch, 
+                    create_breakpoint(gdbarch,
                               loc_from_pc(patched_addr + 4).get(),
                               NULL, 0, "", 1,
                               0, bp_breakpoint,
@@ -397,7 +397,7 @@ patch_cmd_kind(int default_val, CORE_ADDR address)
   {
     return iterator->second;
   }
-    
+
 }
 /* Analyze the layout of instructions around patched_addr and determines
    where to place the trampoline accordingly
@@ -464,6 +464,9 @@ build_compile_trampoline (struct gdbarch *gdbarch,
   CORE_ADDR trampoline_end = trampoline + trampoline_size;
   while(insn_addr<return_address)
   {
+    /* offset >=0 && offset < jump_insn_size */
+    int original_offset = insn_addr - patch->patch_address;
+    patch->relocated_insn_offset[original_offset]= (int) (trampoline_end-trampoline);
     gdbarch_relocate_instruction (gdbarch, &trampoline_end, insn_addr);
     insn_addr += gdb_insn_length(gdbarch, insn_addr);
   }
