@@ -1955,7 +1955,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
 
   if (offset)
     {
-      rel32 = extract_signed_integer (insn + offset, arg_len, byte_order);
+      rel32 = extract_signed_integer (insn_details.raw_insn + offset, arg_len, byte_order);
       newrel = (oldloc - *to) + rel32 - (4 + offset_diff - arg_len);
       if(newrel<INT_MIN || newrel > INT_MAX)
       {
@@ -1963,7 +1963,7 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
         if (debug_displaced)
           error(_("Overflowing of int32 for jump instruction relocation"));
       }
-      store_signed_integer (insn + offset, 4, byte_order, newrel);
+      store_signed_integer (insn_details.raw_insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog,
 			    "Adjusted insn rel32=%s at %s to"
