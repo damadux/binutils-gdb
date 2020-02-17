@@ -1935,9 +1935,9 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
 
   if (offset)
     {
-      rel32 = extract_signed_integer (insn + offset, 4, byte_order);
+      rel32 = extract_signed_integer (insn_details.raw_insn + offset, 4, byte_order);
       newrel = (oldloc - *to) + rel32;
-      store_signed_integer (insn + offset, 4, byte_order, newrel);
+      store_signed_integer (insn_details.raw_insn + offset, 4, byte_order, newrel);
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog,
 			    "Adjusted insn rel32=%s at %s to"
