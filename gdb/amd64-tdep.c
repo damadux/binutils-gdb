@@ -1929,28 +1929,28 @@ amd64_relocate_instruction (struct gdbarch *gdbarch,
       /* Replace short jumps by long ones */
       if (insn[0] == 0xeb)
 	{
-    arg_len = 1;
-    insn[0] = 0xe9;
-    insn_length = 5;
-  }
+	  arg_len = 1;
+	  insn[0] = 0xe9;
+	  insn_length = 5;
+	}
       /* Adjust jumps with 32-bit relative addresses.  Calls are
 	 already handled above.  */
       if (insn[0] == 0xe9)
-    offset = 1;
+	offset = 1;
 
       /* Replace short jumps by long ones */
       if ((insn[0] & 0xf0) == 0x70)
 	{
-    arg_len = 1;
-    insn[2] = insn[1];
-    insn[1] = insn[0]+0x10;
-    insn[0] = 0x0f;
-    insn_length = 6;
-    offset_diff = 1;
-  }
+	  arg_len = 1;
+	  insn[2] = insn[1];
+	  insn[1] = insn[0] + 0x10;
+	  insn[0] = 0x0f;
+	  insn_length = 6;
+	  offset_diff = 1;
+	}
       /* Adjust conditional jumps.  */
       if (insn[0] == 0x0f && (insn[1] & 0xf0) == 0x80)
-    offset = 2;
+	offset = 2;
     }
 
   if (offset)
@@ -3208,6 +3208,21 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x50; /* push %r8 */
 
+  /* rsp -= 0x200 for vector registers.  */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x81; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0xfe; 
+  trampoline_instr[i++] = 0xff; 
+  trampoline_instr[i++] = 0xff; 
+
+  trampoline_instr[i++] = 0x0f; /* fxsave *%rsp */
+  trampoline_instr[i++] = 0xae; 
+  trampoline_instr[i++] = 0x04; 
+  trampoline_instr[i++] = 0x24;
+
+
 
 
   /* Provide gdb_expr () arguments.  */
@@ -3230,6 +3245,21 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0xd0;
 
   /* restore registers */
+
+  trampoline_instr[i++] = 0x0f; /* fxsave *%rsp */
+  trampoline_instr[i++] = 0xae; 
+  trampoline_instr[i++] = 0x0c; 
+  trampoline_instr[i++] = 0x24;
+
+  /* rsp += 0x200 for vector registers.  */
+  trampoline_instr[i++] = 0x48; 
+  trampoline_instr[i++] = 0x81; 
+  trampoline_instr[i++] = 0xc4; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x02; 
+  trampoline_instr[i++] = 0x00; 
+  trampoline_instr[i++] = 0x00; 
+
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x58; /* pop %r8 */
   trampoline_instr[i++] = 0x41;

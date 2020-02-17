@@ -137,7 +137,7 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
 
     while(candidate_address - base_address < max_range) 
     {
-        fprintf_filtered(gdb_stdlog,"candidate 0x%lx base 0x%lx \n", candidate_address, base_address);
+        // fprintf_filtered(gdb_stdlog,"candidate 0x%lx base 0x%lx \n", candidate_address, base_address);
         page_addr = PAGE_ADDRESS(candidate_address);
         auto page_map_iterator = compile_memory_map.find(page_addr);
         
@@ -171,7 +171,7 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
             candidate_address += page_size;
             continue;
         }
-        fprintf_filtered(gdb_stdlog,"page mapped\n");
+        // fprintf_filtered(gdb_stdlog,"page mapped\n");
         /* The page has already been mapped by this program. 
            Check for the next available chunk of the proper size.  */
         /* First entry after candidate_address.  */
@@ -182,13 +182,13 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
             {
               
               upper_bound = start_of_page(gdbarch, page_addr + page_size);
-              fprintf_filtered(gdb_stdlog,"Over end of page ub 0x%lx \n", upper_bound);
+              // fprintf_filtered(gdb_stdlog,"Over end of page ub 0x%lx \n", upper_bound);
             }
             else
             {
               upper_bound = page_addr + page_size;
             }
-            fprintf_filtered(gdb_stdlog,"End of page\n");
+            // fprintf_filtered(gdb_stdlog,"End of page\n");
         }
         else
         {
@@ -197,10 +197,10 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
         /* Check if there is enough room upwards */
         if (upper_bound >= candidate_address + trampoline_size)
         {
-            fprintf_filtered(gdb_stdlog,"Enough room\n");
+            // fprintf_filtered(gdb_stdlog,"Enough room\n");
             if(upper_entry == page_map->begin())
             {
-                fprintf_filtered(gdb_stdlog,"Start of page\n");
+                // fprintf_filtered(gdb_stdlog,"Start of page\n");
                 lower_bound = page_addr;
             }
             else
@@ -209,7 +209,7 @@ next_available_address(gdbarch *gdbarch, CORE_ADDR base_address, int trampoline_
             }
             if(lower_bound <= candidate_address)
             {
-              fprintf_filtered(gdb_stdlog,"Returning\n");
+              // fprintf_filtered(gdb_stdlog,"Returning\n");
                 return candidate_address;
             }
         }
@@ -241,7 +241,7 @@ This is not supposed to happen."));
     /* Maybe check for availability.  */
     if (next_available_address(gdbarch, trampoline_address,trampoline_size,1)!=trampoline_address)
     {
-        fprintf_filtered(gdb_stdlog, "naa 0x%lx add 0x%lx \n", next_available_address(gdbarch, trampoline_address,trampoline_size,1), trampoline_address);
+        // fprintf_filtered(gdb_stdlog, "naa 0x%lx add 0x%lx \n", next_available_address(gdbarch, trampoline_address,trampoline_size,1), trampoline_address);
         error(_("Trying to allocate a trampoline on already allocated memory. \n\
 This is not supposed to happen."));
     }

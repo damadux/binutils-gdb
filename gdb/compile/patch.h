@@ -39,15 +39,15 @@ public:
         active = TRUE;
     }
 
-    ~Patch()
-    {
-        /* maybe call do_module_cleanup */
-        unlink (comp_module->source_file);
-        xfree (comp_module->source_file);
-        unlink (objfile_name (comp_module->objfile));
-        delete comp_module->munmap_list_head;
-        xfree (comp_module);
-    }
+    // ~Patch()
+    // {
+    //     /* maybe call do_module_cleanup */
+    //     unlink (comp_module->source_file);
+    //     xfree (comp_module->source_file);
+    //     unlink (objfile_name (comp_module->objfile));
+    //     delete comp_module->munmap_list_head;
+    //     xfree (comp_module);
+    // }
 };
 
 typedef std::list<Patch *> patch_list;
