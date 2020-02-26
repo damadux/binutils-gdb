@@ -787,14 +787,14 @@ compile_to_object (struct command_line *cmd, const char *cmd_string,
 
   compile_file_names fnames = get_new_file_names ();
 
-  gdb::optional<gdb::unlinker> source_remover;
+  // gdb::optional<gdb::unlinker> source_remover;
 
   {
     gdb_file_up src = gdb_fopen_cloexec (fnames.source_file (), "w");
     if (src == NULL)
       perror_with_name (_("Could not open source file for writing"));
 
-    source_remover.emplace (fnames.source_file ());
+    // source_remover.emplace (fnames.source_file ());
 
     if (fputs (code.c_str (), src.get ()) == EOF)
       perror_with_name (_("Could not write to source file"));
@@ -815,7 +815,7 @@ compile_to_object (struct command_line *cmd, const char *cmd_string,
 			fnames.object_file ());
 
   /* Keep the source file.  */
-  source_remover->keep ();
+  // source_remover->keep ();
   return fnames;
 }
 
@@ -840,7 +840,7 @@ eval_compile_command (struct command_line *cmd, const char *cmd_string,
   compile_file_names fnames = compile_to_object (cmd, cmd_string, scope, 0);
 
   gdb::unlinker object_remover (fnames.object_file ());
-  gdb::unlinker source_remover (fnames.source_file ());
+  // gdb::unlinker source_remover (fnames.source_file ());
 
   compile_module = compile_object_load (fnames, scope, scope_data);
   if (compile_module == NULL)
@@ -852,7 +852,7 @@ eval_compile_command (struct command_line *cmd, const char *cmd_string,
     }
 
   /* Keep the files.  */
-  source_remover.keep ();
+  // source_remover.keep ();
   object_remover.keep ();
 
   compile_object_run (compile_module);

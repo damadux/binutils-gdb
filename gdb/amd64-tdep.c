@@ -3208,19 +3208,37 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x50; /* push %r8 */
 
-  /* rsp -= 0x200 for vector registers.  */
+  /* Store rsp twice so that we can recover it
+     whether rsp is 16bit aligned or not.  */
+  trampoline_instr[i++] = 0x48; /* mov %rsp, *(%rsp-16) */
+  trampoline_instr[i++] = 0x89;
+  trampoline_instr[i++] = 0x64;
+  trampoline_instr[i++] = 0x24;
+  trampoline_instr[i++] = 0xf0;
+
+  trampoline_instr[i++] = 0x54; /* push %rsp */
+
+
+  /* Align rsp on 16 bits.  */
+  trampoline_instr[i++] = 0x66; /* and 0xfff0, %sp */
+  trampoline_instr[i++] = 0x83;
+  trampoline_instr[i++] = 0xe4;
+  trampoline_instr[i++] = 0xf0;
+
+  /* rsp -= 0x200 to store vector registers.  */
   trampoline_instr[i++] = 0x48; 
   trampoline_instr[i++] = 0x81; 
   trampoline_instr[i++] = 0xc4; 
   trampoline_instr[i++] = 0x00; 
   trampoline_instr[i++] = 0xfe; 
   trampoline_instr[i++] = 0xff; 
-  trampoline_instr[i++] = 0xff; 
+  trampoline_instr[i++] = 0xff;
 
-  trampoline_instr[i++] = 0x0f; /* fxsave *%rsp */
-  trampoline_instr[i++] = 0xae; 
-  trampoline_instr[i++] = 0x04; 
-  trampoline_instr[i++] = 0x24;
+
+  // trampoline_instr[i++] = 0x0f; /* fxsave *%rsp */
+  // trampoline_instr[i++] = 0xae; 
+  // trampoline_instr[i++] = 0x04; 
+  // trampoline_instr[i++] = 0x24;
 
 
 
@@ -3246,10 +3264,10 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
 
   /* restore registers */
 
-  trampoline_instr[i++] = 0x0f; /* fxsave *%rsp */
-  trampoline_instr[i++] = 0xae; 
-  trampoline_instr[i++] = 0x0c; 
-  trampoline_instr[i++] = 0x24;
+  // trampoline_instr[i++] = 0x0f; /* fxrstr *%rsp */
+  // trampoline_instr[i++] = 0xae; 
+  // trampoline_instr[i++] = 0x0c; 
+  // trampoline_instr[i++] = 0x24;
 
   /* rsp += 0x200 for vector registers.  */
   trampoline_instr[i++] = 0x48; 
@@ -3259,6 +3277,8 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x02; 
   trampoline_instr[i++] = 0x00; 
   trampoline_instr[i++] = 0x00; 
+
+  trampoline_instr[i++] = 0x5c; /* pop %rsp */
 
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x58; /* pop %r8 */
@@ -3316,8 +3336,8 @@ amd64_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to)
     }
 
   int32_t jump_offset = (int32_t)long_jump_offset;
-  fprintf_filtered (gdb_stdlog, "Patched in a jump from 0x%lx to 0x%lx \n",
-                    from, to);
+  // fprintf_filtered (gdb_stdlog, "Patched in a jump from 0x%lx to 0x%lx \n",
+  //                   from, to);
   gdb_byte jump_insn[] = { 0xe9, 0, 0, 0, 0 };
   memcpy (jump_insn + 1, &jump_offset, 4);
 

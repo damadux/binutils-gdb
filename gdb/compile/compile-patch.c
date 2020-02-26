@@ -16,7 +16,7 @@
 #include <map>
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
-#define PAGE_ADDRESS(addr) (addr/PAGE_SIZE)*PAGE_SIZE
+#define PAGE_ADDRESS(addr) (((addr)/PAGE_SIZE)*PAGE_SIZE)
 #define TP_MAX_SIZE 0x100
 
 static PatchMap registered_patches;
@@ -245,6 +245,19 @@ This is not supposed to happen."));
         error(_("Trying to allocate a trampoline on already allocated memory. \n\
 This is not supposed to happen."));
     }
+    if (trampoline_address + trampoline_size > page_addr + PAGE_SIZE)
+      {
+	CORE_ADDR second_page
+	  = PAGE_ADDRESS ((trampoline_address + trampoline_size));
+	page_map_iterator = compile_memory_map.find (second_page);
+	if (page_map_iterator == compile_memory_map.end ())
+	  {
+	    error (_ ("Trying to allocate the end of a trampoline on an unmapped page. \n\
+This is not supposed to happen."));
+	  }
+	page_map_t *second_page_map = page_map_iterator->second;
+	second_page_map->insert({second_page, trampoline_address + trampoline_size});
+      }
     page_map->insert({trampoline_address, trampoline_address + trampoline_size});
 }
 
@@ -311,79 +324,80 @@ place_trampoline(gdbarch *gdbarch, Patch *patch, int trampoline_size)
     /* First we only modify the first and last instructions.  */
     /* 5th byte of the jump is not the start of an instruction.  */
     // TMP : disable everything sigill related
-    if(layout[4]<=0)
-    {   int ill_insn_pos = -layout[4];
-        patch->ill_insn_offset = ill_insn_pos-1;
-        for(int i = 0; i < ILL_INSN_CNT; i++)
-        {
-            
-            offset_array[ill_insn_pos-1]=illegal_insn[i];
+    if (layout[4] <= 0)
+      {
+	int ill_insn_pos = -layout[4];
+	patch->ill_insn_offset = ill_insn_pos - 1;
+	for (int i = 0; i < ILL_INSN_CNT; i++)
+	  {
+	    offset_array[ill_insn_pos - 1] = illegal_insn[i];
 
-            int32_t base_offset = next_available_address(gdbarch, base_address(gdbarch, patched_addr) - patched_addr - 5, trampoline_size, max_range);
-            offset_array[3]=(gdb_byte)(base_offset>>(8*3));
-            while((int8_t) offset_array[3]<MAX_INT8-1)
-            {
-                candidate_address = patched_addr+offset+5;
-                if(VALID_ADDRESS(candidate_address))
-                {
-                    /* Try with this offset.  */
-                    CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
-                    /* Check if next address is reachable modifying only the bytes from the first instruction.  */
-                    if(next_address-(candidate_address)<max_range)
-                    {
-                        ill_insn_patches_kind.insert(
-                          {patched_addr+ill_insn_pos, 10 + 5-ill_insn_pos});
-                        create_breakpoint(gdbarch,
-                              loc_from_pc(patched_addr+ill_insn_pos).get(),
-                              NULL, 0, "", 1,
-                              0, bp_breakpoint,
-                              1<<30,
-                               AUTO_BOOLEAN_TRUE,
-                               &bkpt_breakpoint_ops,
-                               0,
-                               1,
-                               1,
-                               0);
-                        allocate_trampoline(gdbarch, next_address, trampoline_size);
-                        return next_address;
-                    }
-                }
-                offset_array[3]+=1;
-            }
-        }
-    }
+	    int32_t base_offset
+	      = next_available_address (gdbarch,
+					base_address (gdbarch, patched_addr)
+					  - patched_addr - 5,
+					trampoline_size, max_range);
+	    offset_array[3] = (gdb_byte) (base_offset >> (8 * 3));
+	    while ((int8_t) offset_array[3] < MAX_INT8 - 1)
+	      {
+		candidate_address = patched_addr + offset + 5;
+		if (VALID_ADDRESS (candidate_address))
+		  {
+		    /* Try with this offset.  */
+		    CORE_ADDR next_address
+		      = next_available_address (gdbarch, candidate_address,
+						trampoline_size, max_range);
+		    /* Check if next address is reachable modifying only the
+		     * bytes from the first instruction.  */
+		    if (next_address - (candidate_address) < max_range)
+		      {
+			ill_insn_patches_kind.insert (
+			  {patched_addr + ill_insn_pos, 10 + 5 - ill_insn_pos});
+			create_breakpoint (
+			  gdbarch,
+			  loc_from_pc (patched_addr + ill_insn_pos).get (),
+			  NULL, 0, "", 1, 0, bp_breakpoint, 1 << 30,
+			  AUTO_BOOLEAN_TRUE, &bkpt_breakpoint_ops, 0, 1, 1, 0);
+			allocate_trampoline (gdbarch, next_address,
+					     trampoline_size);
+			return next_address;
+		      }
+		  }
+		offset_array[3] += 1;
+	      }
+	  }
+      }
     else
-    {
-        for(int i = 0; i < ILL_INSN_CNT; i++)
-        {
-            offset_array[4] = illegal_insn[i];
-            candidate_address = patched_addr + offset + 5;
-            if(VALID_ADDRESS(candidate_address))
-            {
-                /* Try with this offset.  */
-                CORE_ADDR next_address = next_available_address(gdbarch, candidate_address, trampoline_size, max_range);
-                /* Check if next address is reachable modifying only the bytes from the first instruction.  */
-                if(next_address-(candidate_address)<max_range)
-                {
-                    /* allocate breakpoint of kind 11 at address candidate_address.  */
-                    ill_insn_patches_kind.insert({patched_addr + 4, 10 + 1});
-                    create_breakpoint(gdbarch,
-                              loc_from_pc(patched_addr + 4).get(),
-                              NULL, 0, "", 1,
-                              0, bp_breakpoint,
-                              1<<30,
-                               AUTO_BOOLEAN_TRUE,
-                               &bkpt_breakpoint_ops,
-                               0,
-                               1,
-                               1,
-                               0);
-                    allocate_trampoline(gdbarch, next_address, trampoline_size);
-                    return next_address;
-                }
-            }
-        }
-    }
+      {
+	for (int i = 0; i < ILL_INSN_CNT; i++)
+	  {
+	    offset_array[4] = illegal_insn[i];
+	    candidate_address = patched_addr + offset + 5;
+	    if (VALID_ADDRESS (candidate_address))
+	      {
+		/* Try with this offset.  */
+		CORE_ADDR next_address
+		  = next_available_address (gdbarch, candidate_address,
+					    trampoline_size, max_range);
+		/* Check if next address is reachable modifying only the bytes
+		 * from the first instruction.  */
+		if (next_address - (candidate_address) < max_range)
+		  {
+		    /* allocate breakpoint of kind 11 at address
+		     * candidate_address.  */
+		    ill_insn_patches_kind.insert ({patched_addr + 4, 10 + 1});
+		    create_breakpoint (gdbarch,
+				       loc_from_pc (patched_addr + 4).get (),
+				       NULL, 0, "", 1, 0, bp_breakpoint,
+				       1 << 30, AUTO_BOOLEAN_TRUE,
+				       &bkpt_breakpoint_ops, 0, 1, 1, 0);
+		    allocate_trampoline (gdbarch, next_address,
+					 trampoline_size);
+		    return next_address;
+		  }
+	      }
+	  }
+      }
     return 0;
 }
 
@@ -528,9 +542,20 @@ patch_code (const char *location, const char *code)
       fprintf_filtered(gdb_stderr,
         "Unable to build a trampoline.\n");
       /* Free unused memory */
+      const char *objfile_name_s = objfile_name (compile_module->objfile);
       unlink (compile_module->source_file);
       xfree (compile_module->source_file);
-      unlink (objfile_name (compile_module->objfile));
+        for (objfile *objfile : current_program_space->objfiles ())
+	  if ((objfile->flags & OBJF_USERLOADED) == 0
+	      && (strcmp (objfile_name (objfile),
+			  objfile_name_s)
+		  == 0))
+	    {
+	      delete objfile;
+	      clear_symtab_users (0);
+	      break;
+	    }
+      unlink (objfile_name_s);
       xfree (compile_module);
       return;
   }
@@ -555,10 +580,22 @@ to be replaced by a jump instruction.\n");
   /* Free unused memory */
   /* Some memory is left allocated in the inferior because
      we still need to access it to execute the compiled code.  */
-  unlink (compile_module->source_file);
-  xfree (compile_module->source_file);
-  unlink (objfile_name (compile_module->objfile));
-  xfree (compile_module);
+      const char *objfile_name_s = objfile_name (compile_module->objfile);
+      unlink (compile_module->source_file);
+      xfree (compile_module->source_file);
+        for (objfile *objfile : current_program_space->objfiles ())
+	  if ((objfile->flags & OBJF_USERLOADED) == 0
+	      && (strcmp (objfile_name (objfile),
+			  objfile_name_s)
+		  == 0))
+	    {
+	      delete objfile;
+	      clear_symtab_users (0);
+	      break;
+	    }
+      unlink (objfile_name_s);
+      xfree (compile_module);
+      return;
 }
 
 /* Handle the input from the 'patch code' command.  The
