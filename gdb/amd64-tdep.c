@@ -3167,22 +3167,28 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   int regs_store_num = module->regs_store_num;
   /* save registers */
   /* Flags may cause a bug when stepped over.  */
-  trampoline_instr[i++] = 0x9c; /* pushfq */ /* FIXME: can be overwritten because it is in the red zone */ 
+  // trampoline_instr[i++] = 0x9c; /* pushfq */ /* FIXME: can be overwritten because it is in the red zone */ 
   /* or */
-  /* Store rax at rsp -0x80 */
+  /* Store rax at rsp -0xc8 */
+  trampoline_instr[i++] = 0x48;
+  trampoline_instr[i++] = 0x89;
+  trampoline_instr[i++] = 0x84;
+  trampoline_instr[i++] = 0x24;
+  trampoline_instr[i++] = 0x38;
+  trampoline_instr[i++] = 0xff;
+  trampoline_instr[i++] = 0xff;
+  trampoline_instr[i++] = 0xff;
+  
   /* Move flags to ah */
-  /* add -0x88 to rsp */
-  /* push regs  */
-  /* pop every reg */
-  /* add 0x88 to rsp */
-  /* mov ah to flags */
+  trampoline_instr[i++] = 0x9f; /* lahf */
 
-  /* rsp -= 0x80 for the red zone */
+  /* rsp -= 0x80 for the red zone*/
   trampoline_instr[i++] = 0x48; 
   trampoline_instr[i++] = 0x83; 
   trampoline_instr[i++] = 0xc4; 
   trampoline_instr[i++] = 0x80; 
   
+  trampoline_instr[i++] = 0x50; /* push %rax i.e. flags */
   trampoline_instr[i++] = 0x54; /* push %rsp */
   trampoline_instr[i++] = 0x55; /* push %rbp */
   trampoline_instr[i++] = 0x57; /* push %rdi */
@@ -3190,7 +3196,10 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x52; /* push %rdx */
   trampoline_instr[i++] = 0x51; /* push %rcx */
   trampoline_instr[i++] = 0x53; /* push %rbx */
-  trampoline_instr[i++] = 0x50; /* push %rax */
+  trampoline_instr[i++] = 0x48; /* skip this position (old rax is there) */
+  trampoline_instr[i++] = 0x83; 
+  trampoline_instr[i++] = 0xc4;
+  trampoline_instr[i++] = 0xf8;
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x57; /* push %r15 */
   trampoline_instr[i++] = 0x41;
@@ -3296,7 +3305,7 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x5e; /* pop %r14 */
   trampoline_instr[i++] = 0x41;
   trampoline_instr[i++] = 0x5f; /* pop %r15 */
-  trampoline_instr[i++] = 0x58; /* pop %rax */
+  trampoline_instr[i++] = 0x58; /* pop %rax (will be overwritten right after) */
   trampoline_instr[i++] = 0x5b; /* pop %rbx */
   trampoline_instr[i++] = 0x59; /* pop %rcx */
   trampoline_instr[i++] = 0x5a; /* pop %rdx */
@@ -3304,7 +3313,7 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x5f; /* pop %rdi */
   trampoline_instr[i++] = 0x5d; /* pop %rbp */
   trampoline_instr[i++] = 0x5c; /* pop %rsp */
-
+  trampoline_instr[i++] = 0x58; /* pop %rax */
   /* rsp += 0x80 for the red zone.  */
   trampoline_instr[i++] = 0x48; 
   trampoline_instr[i++] = 0x81; 
@@ -3314,7 +3323,17 @@ amd64_fill_trampoline_buffer (unsigned char *trampoline_instr,
   trampoline_instr[i++] = 0x00; 
   trampoline_instr[i++] = 0x00; 
 
-  trampoline_instr[i++] = 0x9d; /* popfq */
+  trampoline_instr[i++] = 0x9e; /* sahf */
+
+  /* Restore rax from rsp -0xc8 */
+  trampoline_instr[i++] = 0x48;
+  trampoline_instr[i++] = 0x8B;
+  trampoline_instr[i++] = 0x84;
+  trampoline_instr[i++] = 0x24;
+  trampoline_instr[i++] = 0x38;
+  trampoline_instr[i++] = 0xff;
+  trampoline_instr[i++] = 0xff;
+  trampoline_instr[i++] = 0xff;
 
   return i;
 }
