@@ -66,6 +66,7 @@ struct mem_range;
 struct syscalls_info;
 struct thread_info;
 struct ui_out;
+struct compile_module;
 
 #include "regcache.h"
 
@@ -1648,6 +1649,18 @@ extern void set_gdbarch_get_pc_address_flags (struct gdbarch *gdbarch, gdbarch_g
 
 extern struct gdbarch_tdep *gdbarch_tdep (struct gdbarch *gdbarch);
 
+/* Fill a trampoline by saving and restoring registers and calling the function from the compile module.  */
+typedef int (gdbarch_fill_trampoline_buffer_ftype) (unsigned char *trampoline_instr, compile_module *module);
+extern int gdbarch_fill_trampoline_buffer (struct gdbarch *gdbarch, unsigned char *trampoline_instr, compile_module *module);
+extern void set_gdbarch_fill_trampoline_buffer (struct gdbarch *gdbarch, gdbarch_fill_trampoline_buffer_ftype *fill_trampoline_buffer);
+
+/* Insert a jump instruction from ''from'' to ''to'' */
+typedef bool (gdbarch_patch_jump_ftype) (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to);
+extern bool gdbarch_patch_jump (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to);
+extern void set_gdbarch_patch_jump (struct gdbarch *gdbarch, gdbarch_patch_jump_ftype *patch_jump);
+
+extern int gdbarch_jmp_insn_length(gdbarch *gdbarch, bool without_opcode);
+extern void set_gdbarch_jmp_insn_length(gdbarch *gdbarch);
 
 /* Mechanism for co-ordinating the selection of a specific
    architecture.
