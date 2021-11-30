@@ -1,10 +1,10 @@
 start
 
-call (void *) dlopen("/home/davidpiche/Documents/exp-setup-mem/pn-test/libdw.so",2)
+call (void *) dlopen("/home/david/Documents/gdb-patch/binutils-gdb/source/libdw.so",2)
 call (void) dw_init()
-source /home/davidpiche/Documents/exp-setup-mem/pn-test/sigill-handler.py
-source /home/davidpiche/Documents/exp-setup-mem/pn-test/datawatch-segfault.py
-source /home/davidpiche/Documents/exp-setup-mem/pn-test/syscall-handler.py
+source /home/david/Documents/gdb-patch/binutils-gdb/source/sigill-handler.py
+source /home/david/Documents/gdb-patch/binutils-gdb/source/datawatch-segfault.py
+source /home/david/Documents/gdb-patch/binutils-gdb/source/syscall-handler.py
 
 handle SIGSEGV ignore
 catch signal SIGSEGV
